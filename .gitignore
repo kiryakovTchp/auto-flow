@@ -1,0 +1,32 @@
+# OS / editor
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local env / secrets
+.env
+# keep example file tracked
+.env.*
+!.env.example
+
+# Local encrypted master key / data
+data/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.tmp/
+tmp/
+
+# Private notes
+src/routes/admin-ui-snippet.txt
+docs/apikeys.md
+docs/wiki/
