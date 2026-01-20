@@ -5,6 +5,7 @@ import type { GithubClient } from '../integrations/github';
 import { buildIssueBodyWithCommand, buildTaskSpecMarkdown } from './taskspec';
 
 export async function ensureGithubIssueForAsanaTask(params: {
+  projectId?: string;
   asana: AsanaClient;
   github: GithubClient;
   asanaTaskGid: string;
@@ -18,6 +19,7 @@ export async function ensureGithubIssueForAsanaTask(params: {
   const asanaTask = await params.asana.getTask(params.asanaTaskGid);
 
   const taskRow = await upsertTaskByAsanaGid({
+    projectId: params.projectId,
     asanaGid: asanaTask.gid,
     title: asanaTask.name,
     status: 'RECEIVED',

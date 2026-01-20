@@ -2,15 +2,22 @@ import crypto from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
+import cookieParser from 'cookie-parser';
 
 import { logger } from './logger/logger';
 import { ensureDefaultAdminUser } from './db/bootstrap';
 import { adminProtectedApiRouter } from './routes/admin-protected';
 import { adminUiProtectedRouter } from './routes/admin-ui-protected';
 import { publicRouter } from './routes/public';
+import { authUiRouter } from './routes/auth-ui';
+import { projectWebhooksUiRouter } from './routes/auth-ui-webhooks';
+import { projectTasksUiRouter } from './routes/project-tasks-ui';
+import { asanaImportUiRouter } from './routes/asana-import-ui';
 import { runMigrations } from './db/migrations';
 import { asanaWebhookHandler } from './webhooks/asana-handler';
 import { githubWebhookHandler } from './webhooks/github-handler';
+import { asanaProjectWebhookHandler } from './webhooks/asana-project-handler';
+import { githubProjectWebhookHandler } from './webhooks/github-project-handler';
 
 dotenv.config();
 
@@ -27,6 +34,8 @@ app.use(
   }),
 );
 
+app.use(cookieParser());
+
 app.use(
   pinoHttp({
     logger,
@@ -41,16 +50,24 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// New session-based UI
+app.use(authUiRouter());
+app.use(projectWebhooksUiRouter());
+app.use(projectTasksUiRouter());
+app.use(asanaImportUiRouter());
+
 app.use('/api', publicRouter());
 
-// Browser UI (Basic Auth)
+// Legacy Basic-Auth admin UI (kept temporarily)
 app.use('/admin', adminUiProtectedRouter());
-
-// Admin JSON API (Basic Auth)
 app.use('/api/admin', adminProtectedApiRouter());
 
 app.post('/webhooks/asana', asanaWebhookHandler);
 app.post('/webhooks/github', githubWebhookHandler);
+
+// Stage 3: per-project endpoints
+app.all('/webhooks/asana/:projectId', asanaProjectWebhookHandler);
+app.all('/webhooks/github/:projectId', githubProjectWebhookHandler);
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   logger.error({ err }, 'Unhandled request error');

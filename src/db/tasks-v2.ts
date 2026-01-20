@@ -5,6 +5,10 @@ export type CiStatus = 'pending' | 'success' | 'failure';
 export type TaskStatus =
   | 'RECEIVED'
   | 'TASKSPEC_CREATED'
+  | 'NEEDS_REPO'
+  | 'AUTO_DISABLED'
+  | 'CANCELLED'
+  | 'BLOCKED'
   | 'ISSUE_CREATED'
   | 'PR_CREATED'
   | 'WAITING_CI'
@@ -13,6 +17,7 @@ export type TaskStatus =
 
 export type TaskRow = {
   id: string;
+  project_id: string | null;
   asana_gid: string;
   title: string | null;
   status: TaskStatus;
@@ -29,6 +34,7 @@ export type TaskRow = {
 };
 
 export async function upsertTaskByAsanaGid(params: {
+  projectId?: string;
   asanaGid: string;
   title?: string;
   status: TaskStatus;
@@ -36,17 +42,18 @@ export async function upsertTaskByAsanaGid(params: {
 }): Promise<TaskRow> {
   const res = await pool.query<TaskRow>(
     `
-      insert into tasks (asana_gid, title, status, last_error)
-      values ($1, $2, $3, $4)
+      insert into tasks (project_id, asana_gid, title, status, last_error)
+      values ($1, $2, $3, $4, $5)
       on conflict (asana_gid) do update
       set
+        project_id = coalesce(excluded.project_id, tasks.project_id),
         title = coalesce(excluded.title, tasks.title),
         status = excluded.status,
         last_error = excluded.last_error,
         updated_at = now()
       returning *
     `,
-    [params.asanaGid, params.title ?? null, params.status, params.lastError ?? null],
+    [params.projectId ?? null, params.asanaGid, params.title ?? null, params.status, params.lastError ?? null],
   );
   return res.rows[0]!;
 }
@@ -121,6 +128,24 @@ export async function getTaskByAsanaGid(asanaGid: string): Promise<TaskRow | nul
 export async function getTaskByIssueNumber(issueNumber: number): Promise<TaskRow | null> {
   const res = await pool.query<TaskRow>('select * from tasks where github_issue_number = $1 limit 1', [issueNumber]);
   return res.rows[0] ?? null;
+}
+
+export async function getTaskById(id: string): Promise<TaskRow | null> {
+  const res = await pool.query<TaskRow>('select * from tasks where id = $1 limit 1', [id]);
+  return res.rows[0] ?? null;
+}
+
+export async function listTasksByProject(projectId: string, status?: TaskStatus): Promise<TaskRow[]> {
+  if (status) {
+    const res = await pool.query<TaskRow>(
+      'select * from tasks where project_id = $1 and status = $2 order by updated_at desc, id desc',
+      [projectId, status],
+    );
+    return res.rows;
+  }
+
+  const res = await pool.query<TaskRow>('select * from tasks where project_id = $1 order by updated_at desc, id desc', [projectId]);
+  return res.rows;
 }
 
 export async function listTasks(): Promise<TaskRow[]> {

@@ -5,6 +5,12 @@ export type GithubIssue = {
   html_url: string;
 };
 
+export type GithubWebhook = {
+  id: number;
+  active: boolean;
+  config?: { url?: string };
+};
+
 export class GithubClient {
   constructor(
     private readonly token: string,
@@ -50,9 +56,21 @@ export class GithubClient {
     });
   }
 
+  async closeIssueNotPlanned(issueNumber: number): Promise<void> {
+    await this.ghRequest('PATCH', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}`, {
+      state: 'closed',
+      state_reason: 'not_planned',
+    });
+  }
+
   async reopenIssue(issueNumber: number): Promise<void> {
     await this.ghRequest('PATCH', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}`, {
       state: 'open',
     });
+  }
+
+  async listWebhooks(): Promise<GithubWebhook[]> {
+    const data = await this.ghRequest<any[]>('GET', `/repos/${this.owner}/${this.repo}/hooks`);
+    return data.map((x) => ({ id: Number(x.id), active: Boolean(x.active), config: { url: x?.config?.url } }));
   }
 }

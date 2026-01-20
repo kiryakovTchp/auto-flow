@@ -35,14 +35,19 @@ export class AsanaClient {
   }
 
   async getTask(taskGid: string): Promise<AsanaTask> {
-    const data = await this.asanaRequest<{ data: any }>('GET', `/tasks/${taskGid}?opt_fields=gid,name,notes,completed,permalink_url`);
+    const data = await this.asanaRequest<{ data: any }>(
+      'GET',
+      `/tasks/${taskGid}?opt_fields=gid,name,notes,completed,permalink_url,custom_fields,custom_fields.gid,custom_fields.boolean_value,custom_fields.enum_value.name`,
+    );
     return {
       gid: String(data.data.gid),
       name: String(data.data.name),
       notes: typeof data.data.notes === 'string' ? data.data.notes : null,
       completed: Boolean(data.data.completed),
       permalink_url: typeof data.data.permalink_url === 'string' ? data.data.permalink_url : undefined,
-    };
+      // keep raw custom fields for stage 5 gating
+      ...(Array.isArray(data.data.custom_fields) ? { custom_fields: data.data.custom_fields } : {}),
+    } as any;
   }
 
   async setTaskCompleted(taskGid: string, completed: boolean): Promise<void> {
