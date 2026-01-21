@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-auto_flow}
+      POSTGRES_USER: ${PGUSER:-postgres}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}
+    volumes:
+      - auto_flow_pgdata:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      PORT: 3000
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      INIT_ADMIN_TOKEN: ${INIT_ADMIN_TOKEN}
+      METRICS_TOKEN: ${METRICS_TOKEN}
+
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD:-postgres}
+      PGDATABASE: ${PGDATABASE:-auto_flow}
+    volumes:
+      # Persist encryption master key + any future local state
+      - auto_flow_data:/app/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  auto_flow_pgdata:
+  auto_flow_data:
+  caddy_data:
+  caddy_config:
