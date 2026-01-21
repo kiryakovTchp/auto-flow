@@ -429,3 +429,82 @@ Acceptance:
 
 - In dev/local: may launch Terminal
 - In staging/prod: button should show instructions and copy commands (must not attempt osascript)
+
+---
+
+## 5) Addendum: Analytics & Observability (To Add)
+
+Goal: add stable "data points" early so we can do analytics (funnels, lead time, failure reasons) and also have a human-readable "what/how/why" history per task.
+
+### 5.1 Event log (DB)
+
+Add tables:
+- `task_events` (task timeline; metadata-first)
+- optionally `project_events` (project-level actions)
+
+Recommended `task_events` columns:
+- `id` (bigserial)
+- `task_id` (FK)
+- `project_id` (FK)
+- `source` (asana|github|system|user|api)
+- `event_type` (string)
+- `ref_json` (jsonb; summarized payload/refs only)
+- `created_at` (timestamptz)
+
+Rules:
+- Write a `task_events` row for every important transition/action.
+- Do NOT store raw webhook payloads by default; store a safe summary (ids, URLs, statuses, sha, delivery id).
+- Always record `delivery_id` where available (for dedupe + debugging).
+
+Minimum event types to support analytics and debugging:
+- `asana.webhook_received`
+- `github.webhook_received`
+- `task.created_or_seen`
+- `task.status_changed` (include from/to + reason)
+- `task.repo_missing` / `task.repo_resolved`
+- `github.issue_created` / `github.issue_closed`
+- `github.pr_linked` / `github.pr_merged`
+- `ci.updated` (sha/status/url)
+- `asana.completed_set` / `asana.reopened_set`
+- `manual.action` (retry/resync/force_pr/change_repo/add_note)
+- `error`
+
+### 5.2 Analytics endpoints (External API)
+
+Expose read endpoints under `/api/v1` (project-scoped token auth):
+- `GET /api/v1/projects/:slug/summary`
+- `GET /api/v1/projects/:slug/funnel?from=&to=`
+- `GET /api/v1/projects/:slug/lead-time?from=&to=`
+- `GET /api/v1/projects/:slug/failures?from=&to=`
+- `GET /api/v1/projects/:slug/webhooks/health`
+- `GET /api/v1/projects/:slug/jobs/health`
+- `GET /api/v1/projects/:slug/tasks/:id/events`
+
+Implementation notes:
+- Funnel + lead-time are computed from `task_events` (source of truth).
+- Keep `summary` fast (pre-aggregate or query `tasks` + minimal joins).
+
+### 5.3 UI: task timeline is the "what/how/why" report
+
+Add to `/p/:slug/t/:id`:
+- Timeline rendering from `task_events`
+- Show who/what triggered changes (source + user if present)
+- Links to Issue/PR/CI + copyable IDs
+
+### 5.4 Metrics (optional)
+
+Optional but useful for ops:
+- `GET /metrics` Prometheus endpoint (protect it; internal only)
+- Counters/Gauges:
+  - webhooks received/invalid
+  - queue depth + oldest pending age
+  - API error rates to Asana/GitHub
+  - tasks by status
+
+### 5.5 Dashboard targets (what we want to see)
+
+Project-level KPIs:
+- Lead time to DEPLOYED (p50/p90)
+- Conversion funnel: AutoTask -> Issue -> PR -> Merge -> CI success -> DEPLOYED
+- Failure reasons (top categories)
+- Backlog states (NEEDS_REPO / WAITING_CI / FAILED)

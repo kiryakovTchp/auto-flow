@@ -8,6 +8,11 @@ export type AsanaTask = {
   permalink_url?: string;
 };
 
+export type AsanaEnumOption = {
+  gid: string;
+  name: string;
+};
+
 export type AsanaWebhook = {
   gid: string;
 };
@@ -90,5 +95,38 @@ export class AsanaClient {
     const webhookGid = String(parsed?.data?.gid);
 
     return { webhookGid, hookSecret: typeof hookSecretStr === 'string' ? hookSecretStr : null };
+  }
+
+  async createTask(params: {
+    name: string;
+    notes?: string | null;
+    projects?: string[];
+  }): Promise<{ taskGid: string; permalinkUrl: string | null }> {
+    const data = await this.asanaRequest<{ data: any }>('POST', '/tasks', {
+      data: {
+        name: params.name,
+        ...(params.notes != null ? { notes: params.notes } : {}),
+        ...(params.projects?.length ? { projects: params.projects } : {}),
+      },
+    });
+    return {
+      taskGid: String(data.data.gid),
+      permalinkUrl: typeof data.data.permalink_url === 'string' ? data.data.permalink_url : null,
+    };
+  }
+
+  async getEnumOptionsForCustomField(customFieldGid: string): Promise<AsanaEnumOption[]> {
+    const data = await this.asanaRequest<{ data: any }>(
+      'GET',
+      `/custom_fields/${customFieldGid}?opt_fields=enum_options.gid,enum_options.name`,
+    );
+    const opts = Array.isArray(data.data?.enum_options) ? data.data.enum_options : [];
+    return opts
+      .map((o: any) => ({ gid: String(o.gid), name: String(o.name) }))
+      .filter((o: AsanaEnumOption) => o.gid && o.name);
+  }
+
+  async setTaskCustomFields(taskGid: string, customFields: Record<string, string | boolean | null>): Promise<void> {
+    await this.asanaRequest('PUT', `/tasks/${taskGid}`, { data: { custom_fields: customFields } });
   }
 }

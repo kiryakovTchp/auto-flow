@@ -17,6 +17,14 @@ export type GithubCheckRun = {
   html_url: string;
 };
 
+export type GithubPullRequest = {
+  number: number;
+  html_url: string;
+  merged: boolean;
+  head_sha: string;
+  merge_commit_sha: string | null;
+};
+
 export class GithubClient {
   constructor(
     private readonly token: string,
@@ -88,6 +96,17 @@ export class GithubClient {
       conclusion: r?.conclusion == null ? null : String(r.conclusion),
       html_url: String(r?.html_url ?? ''),
     }));
+  }
+
+  async getPullRequest(prNumber: number): Promise<GithubPullRequest> {
+    const data = await this.ghRequest<any>('GET', `/repos/${this.owner}/${this.repo}/pulls/${prNumber}`);
+    return {
+      number: Number(data?.number ?? prNumber),
+      html_url: String(data?.html_url ?? ''),
+      merged: Boolean(data?.merged),
+      head_sha: String(data?.head?.sha ?? ''),
+      merge_commit_sha: data?.merge_commit_sha == null ? null : String(data.merge_commit_sha),
+    };
   }
 
   async addIssueComment(issueNumber: number, body: string): Promise<void> {
