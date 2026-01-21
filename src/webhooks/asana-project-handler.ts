@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { getProjectBySlug } from '../db/projects';
 import { verifyAndParseAsanaWebhookForProject } from './asana-project';
 import { enqueueJob } from '../db/job-queue';
+import { insertProjectEvent } from '../db/project-events';
 
 export async function asanaProjectWebhookHandler(req: Request, res: Response): Promise<void> {
   const projectSlug = String(req.params.projectId);
@@ -31,6 +32,16 @@ export async function asanaProjectWebhookHandler(req: Request, res: Response): P
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
+
+  await insertProjectEvent({
+    projectId: project.id,
+    source: 'asana',
+    eventType: 'asana.webhook_received',
+    refJson: {
+      asanaProjectGid,
+      eventsCount: Array.isArray((verified as any).payload?.events) ? (verified as any).payload.events.length : null,
+    },
+  });
 
   try {
     await enqueueJob({

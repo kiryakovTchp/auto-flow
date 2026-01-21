@@ -1,5 +1,6 @@
 import { getTaskByAsanaGid, getTaskByProjectAsanaGid, upsertTaskByAsanaGid, attachIssueToTask } from '../db/tasks-v2';
 import { insertTaskSpec, getLatestTaskSpec } from '../db/taskspecs';
+import { insertTaskEvent } from '../db/task-events';
 import { getProjectKnowledge } from '../db/project-settings';
 import { listProjectContacts, listProjectLinks } from '../db/project-links';
 import type { AsanaClient } from '../integrations/asana';
@@ -67,6 +68,18 @@ export async function ensureGithubIssueForAsanaTask(params: {
   });
 
   await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: asanaTask.gid, status: 'ISSUE_CREATED' });
+
+  await insertTaskEvent({
+    taskId: taskRow.id,
+    kind: 'github.issue_created',
+    eventType: 'github.issue_created',
+    source: 'system',
+    refJson: {
+      issueNumber: issue.number,
+      issueUrl: issue.html_url,
+      repo: `${params.repoOwner}/${params.repoName}`,
+    },
+  });
 
   return { created: true, issueNumber: issue.number, issueUrl: issue.html_url };
 }

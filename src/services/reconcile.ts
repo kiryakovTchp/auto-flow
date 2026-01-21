@@ -40,7 +40,14 @@ export async function reconcileProject(params: { projectId: string }): Promise<v
     const url = completed.find((r) => r.html_url)?.html_url ?? null;
 
     await setCiStateByShaAndRepo({ sha: t.ci_sha, repoOwner: t.github_repo_owner, repoName: t.github_repo_name, status, url });
-    await insertTaskEvent({ taskId: t.id, kind: 'reconcile.ci', message: `Reconciled CI via check-runs: ${status}${url ? ' ' + url : ''}` });
+    await insertTaskEvent({
+      taskId: t.id,
+      kind: 'ci.updated',
+      eventType: 'ci.updated',
+      source: 'system',
+      refJson: { sha: t.ci_sha, status, url },
+      message: `Reconciled CI via check-runs: ${status}${url ? ' ' + url : ''}`,
+    });
 
     const refreshed = await getTaskById(t.id);
     if (refreshed) {

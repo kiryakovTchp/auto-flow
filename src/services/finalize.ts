@@ -29,6 +29,20 @@ export async function finalizeTaskIfReady(params: { task: TaskRow; asana: AsanaC
 
     await setAsanaCompletedByToolByTaskId({ taskId: task.id, value: true });
     await updateTaskStatusById(task.id, 'DEPLOYED');
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'asana.completed_set',
+      eventType: 'asana.completed_set',
+      source: 'system',
+      refJson: { completed: true },
+    });
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'task.status_changed',
+      eventType: 'task.status_changed',
+      source: 'system',
+      refJson: { to: 'DEPLOYED', reason: 'merged+ci_success' },
+    });
     await insertTaskEvent({ taskId: task.id, kind: 'finalize.deployed', message: msg });
     return;
   }
@@ -52,9 +66,24 @@ export async function finalizeTaskIfReady(params: { task: TaskRow; asana: AsanaC
       await params.asana.setTaskCompleted(task.asana_gid, false);
       await setAsanaCompletedByToolByTaskId({ taskId: task.id, value: false });
       await params.asana.addComment(task.asana_gid, 'Reopened in Asana because CI failed after merge.');
+
+      await insertTaskEvent({
+        taskId: task.id,
+        kind: 'asana.reopened_set',
+        eventType: 'asana.reopened_set',
+        source: 'system',
+        refJson: { completed: false },
+      });
     }
 
     await updateTaskStatusById(task.id, 'FAILED', msg);
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'task.status_changed',
+      eventType: 'task.status_changed',
+      source: 'system',
+      refJson: { to: 'FAILED', reason: 'ci_failure_after_merge' },
+    });
     await insertTaskEvent({ taskId: task.id, kind: 'finalize.failed', message: msg });
   }
 }

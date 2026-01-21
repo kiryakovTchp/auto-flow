@@ -1,7 +1,15 @@
 import { markProjectWebhookDelivery } from '../db/project-webhooks';
 import { setCiStateByShaAndRepo } from '../db/ci';
-import { attachPrToTaskById, getTaskById, getTaskByIssueNumber, getTaskByRepoIssueNumber, updateTaskStatusById } from '../db/tasks-v2';
+import {
+  attachPrToTaskById,
+  getTaskById,
+  getTaskByIssueNumber,
+  getTaskByProjectAsanaGid,
+  getTaskByRepoIssueNumber,
+  updateTaskStatusById,
+} from '../db/tasks-v2';
 import { setMergeCommitShaByTaskId } from '../db/tasks-extra';
+import { insertTaskEvent } from '../db/task-events';
 import { getProjectSecretPlain } from './project-secure-config';
 import { AsanaClient } from '../integrations/asana';
 import { GithubClient } from '../integrations/github';
@@ -32,6 +40,22 @@ export async function processAsanaProjectWebhookJob(params: {
 
     if (isTaskAddedEvent(e) || isTaskChangedEvent(e)) {
       await processAsanaTaskStage5({ projectId: params.projectId, asanaProjectGid: params.asanaProjectGid, asanaTaskGid: asanaGid });
+
+      const row = await getTaskByProjectAsanaGid(params.projectId, asanaGid);
+      if (row?.id) {
+        await insertTaskEvent({
+          taskId: row.id,
+          kind: 'asana.webhook_received',
+          eventType: 'asana.webhook_received',
+          source: 'asana',
+          refJson: {
+            asanaProjectGid: params.asanaProjectGid,
+            action: e.action,
+            field: e.change?.field ?? null,
+            resourceGid: asanaGid,
+          },
+        });
+      }
     }
   }
 }
@@ -65,12 +89,37 @@ export async function processGithubProjectWebhookJob(params: {
     if (!task || task.project_id !== params.projectId) return;
     if (task.status === 'AUTO_DISABLED' || task.status === 'CANCELLED') return;
 
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'github.webhook_received',
+      eventType: 'github.webhook_received',
+      source: 'github',
+      deliveryId: params.deliveryId ?? null,
+      refJson: { eventName: params.eventName, action, issueNumber, repoOwner, repoName },
+    });
+
     if (action === 'closed') {
       await updateTaskStatusById(task.id, 'WAITING_CI');
+      await insertTaskEvent({
+        taskId: task.id,
+        kind: 'task.status_changed',
+        eventType: 'task.status_changed',
+        source: 'github',
+        deliveryId: params.deliveryId ?? null,
+        refJson: { to: 'WAITING_CI', reason: 'issue.closed' },
+      });
     }
 
     if (action === 'reopened') {
       await updateTaskStatusById(task.id, 'ISSUE_CREATED');
+      await insertTaskEvent({
+        taskId: task.id,
+        kind: 'task.status_changed',
+        eventType: 'task.status_changed',
+        source: 'github',
+        deliveryId: params.deliveryId ?? null,
+        refJson: { to: 'ISSUE_CREATED', reason: 'issue.reopened' },
+      });
     }
 
     return;
@@ -99,8 +148,37 @@ export async function processGithubProjectWebhookJob(params: {
       if (task && task.project_id === params.projectId) {
         if (task.status === 'AUTO_DISABLED' || task.status === 'CANCELLED') return;
 
+        await insertTaskEvent({
+          taskId: task.id,
+          kind: 'github.webhook_received',
+          eventType: 'github.webhook_received',
+          source: 'github',
+          deliveryId: params.deliveryId ?? null,
+          refJson: { eventName: params.eventName, action, prNumber, repoOwner, repoName },
+        });
+
         await attachPrToTaskById({ taskId: task.id, prNumber, prUrl, sha: sha || undefined });
         await updateTaskStatusById(task.id, merged ? 'WAITING_CI' : 'PR_CREATED');
+
+        await insertTaskEvent({
+          taskId: task.id,
+          kind: 'github.pr_linked',
+          eventType: 'github.pr_linked',
+          source: 'github',
+          deliveryId: params.deliveryId ?? null,
+          refJson: { prNumber, prUrl, headSha: sha || null },
+        });
+
+        if (merged) {
+          await insertTaskEvent({
+            taskId: task.id,
+            kind: 'github.pr_merged',
+            eventType: 'github.pr_merged',
+            source: 'github',
+            deliveryId: params.deliveryId ?? null,
+            refJson: { prNumber, prUrl, mergeCommitSha: mergeSha || null },
+          });
+        }
 
         if (action === 'closed' && merged && mergeSha) {
           await setMergeCommitShaByTaskId({ taskId: task.id, sha: mergeSha });
@@ -139,6 +217,15 @@ export async function processGithubProjectWebhookJob(params: {
       if (t.project_id !== params.projectId) continue;
       if (t.status === 'AUTO_DISABLED' || t.status === 'CANCELLED') continue;
       if (t.github_repo_owner !== repoOwner || t.github_repo_name !== repoName) continue;
+
+      await insertTaskEvent({
+        taskId: t.id,
+        kind: 'ci.updated',
+        eventType: 'ci.updated',
+        source: 'github',
+        deliveryId: params.deliveryId ?? null,
+        refJson: { sha: headSha, status, url: url || null },
+      });
 
       if (!asana) continue;
       const gh = ghToken ? new GithubClient(ghToken, repoOwner, repoName) : undefined;

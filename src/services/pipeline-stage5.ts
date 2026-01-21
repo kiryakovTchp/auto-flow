@@ -42,6 +42,16 @@ export async function processAsanaTaskStage5(params: {
     status: existing?.status ?? 'RECEIVED',
   });
 
+  if (!existing && row?.id) {
+    await insertTaskEvent({
+      taskId: row.id,
+      kind: 'task.created_or_seen',
+      eventType: 'task.created_or_seen',
+      source: 'asana',
+      refJson: { asanaGid: params.asanaTaskGid, title: rawTask.name },
+    });
+  }
+
   if (row?.id) {
     await insertTaskEvent({
       taskId: row.id,
@@ -53,7 +63,16 @@ export async function processAsanaTaskStage5(params: {
 
   // Cancelled: stop sync and close issue as not_planned if exists
   if (mappedStatus === 'CANCELLED') {
-    if (row?.id) await insertTaskEvent({ taskId: row.id, kind: 'pipeline.cancelled', message: 'Cancelled by Asana status mapping' });
+    if (row?.id) {
+      await insertTaskEvent({
+        taskId: row.id,
+        kind: 'task.status_changed',
+        eventType: 'task.status_changed',
+        source: 'asana',
+        refJson: { from: prevStatus, to: 'CANCELLED', reason: 'asana_status_map' },
+      });
+      await insertTaskEvent({ taskId: row.id, kind: 'pipeline.cancelled', message: 'Cancelled by Asana status mapping' });
+    }
 
     // If issue exists, close it as not_planned.
     if (row?.github_issue_number) {
@@ -62,14 +81,32 @@ export async function processAsanaTaskStage5(params: {
       if (owner && repo) {
         const gh = new GithubClient(ghToken, owner, repo);
         await gh.closeIssueNotPlanned(row.github_issue_number);
-        if (row.id) await insertTaskEvent({ taskId: row.id, kind: 'github.issue', message: `Closed issue #${row.github_issue_number} as not_planned` });
+        if (row.id) {
+          await insertTaskEvent({
+            taskId: row.id,
+            kind: 'github.issue_closed',
+            eventType: 'github.issue_closed',
+            source: 'system',
+            refJson: { issueNumber: row.github_issue_number, reason: 'not_planned', repo: `${owner}/${repo}` },
+          });
+          await insertTaskEvent({ taskId: row.id, kind: 'github.issue', message: `Closed issue #${row.github_issue_number} as not_planned` });
+        }
       } else {
         const repos = await listProjectGithubRepos(params.projectId);
         const def = repos.find((r) => r.is_default) ?? repos[0];
         if (def) {
           const gh = new GithubClient(ghToken, def.owner, def.repo);
           await gh.closeIssueNotPlanned(row.github_issue_number);
-          if (row.id) await insertTaskEvent({ taskId: row.id, kind: 'github.issue', message: `Closed issue #${row.github_issue_number} as not_planned` });
+          if (row.id) {
+            await insertTaskEvent({
+              taskId: row.id,
+              kind: 'github.issue_closed',
+              eventType: 'github.issue_closed',
+              source: 'system',
+              refJson: { issueNumber: row.github_issue_number, reason: 'not_planned', repo: `${def.owner}/${def.repo}` },
+            });
+            await insertTaskEvent({ taskId: row.id, kind: 'github.issue', message: `Closed issue #${row.github_issue_number} as not_planned` });
+          }
         }
       }
     }
@@ -98,14 +135,32 @@ export async function processAsanaTaskStage5(params: {
   }
 
   if (mappedStatus === 'BLOCKED') {
-    if (row?.id) await insertTaskEvent({ taskId: row.id, kind: 'pipeline.blocked', message: 'Blocked by Asana status mapping' });
+    if (row?.id) {
+      await insertTaskEvent({
+        taskId: row.id,
+        kind: 'task.status_changed',
+        eventType: 'task.status_changed',
+        source: 'asana',
+        refJson: { from: prevStatus, to: 'BLOCKED', reason: 'asana_status_map' },
+      });
+      await insertTaskEvent({ taskId: row.id, kind: 'pipeline.blocked', message: 'Blocked by Asana status mapping' });
+    }
     await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: params.asanaTaskGid, status: 'BLOCKED' });
     return;
   }
 
   // AutoTask gating
   if (autoEnabled !== true) {
-    if (row?.id) await insertTaskEvent({ taskId: row.id, kind: 'pipeline.auto_disabled', message: 'AutoTask is not enabled; skipping issue creation' });
+    if (row?.id) {
+      await insertTaskEvent({
+        taskId: row.id,
+        kind: 'task.status_changed',
+        eventType: 'task.status_changed',
+        source: 'asana',
+        refJson: { from: prevStatus, to: 'AUTO_DISABLED', reason: 'autoTask=false' },
+      });
+      await insertTaskEvent({ taskId: row.id, kind: 'pipeline.auto_disabled', message: 'AutoTask is not enabled; skipping issue creation' });
+    }
 
     // If a task already has an issue and automation is being disabled, mark it on GitHub.
     if (prevStatus !== 'AUTO_DISABLED' && row?.github_issue_number && row.github_repo_owner && row.github_repo_name) {
@@ -144,7 +199,16 @@ export async function processAsanaTaskStage5(params: {
   // Resolve repo from enum option name.
   // MVP rule: option name must match one of configured repos "owner/repo".
   if (!repoName) {
-    if (row?.id) await insertTaskEvent({ taskId: row.id, kind: 'pipeline.needs_repo', message: 'Repo field is empty' });
+    if (row?.id) {
+      await insertTaskEvent({
+        taskId: row.id,
+        kind: 'task.repo_missing',
+        eventType: 'task.repo_missing',
+        source: 'asana',
+        refJson: { reason: 'repo_field_empty' },
+      });
+      await insertTaskEvent({ taskId: row.id, kind: 'pipeline.needs_repo', message: 'Repo field is empty' });
+    }
     await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: params.asanaTaskGid, status: 'NEEDS_REPO' });
     return;
   }
@@ -174,9 +238,26 @@ export async function processAsanaTaskStage5(params: {
         kind: 'pipeline.needs_repo',
         message: `Repo not resolved. Option: ${repoName}. Add mapping in Settings.`,
       });
+      await insertTaskEvent({
+        taskId: row.id,
+        kind: 'task.repo_missing',
+        eventType: 'task.repo_missing',
+        source: 'system',
+        refJson: { reason: 'repo_not_resolved', optionName: repoName },
+      });
     }
     await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: params.asanaTaskGid, status: 'NEEDS_REPO' });
     return;
+  }
+
+  if (prevStatus === 'NEEDS_REPO' && row?.id) {
+    await insertTaskEvent({
+      taskId: row.id,
+      kind: 'task.repo_resolved',
+      eventType: 'task.repo_resolved',
+      source: 'asana',
+      refJson: { repo: `${resolved.owner}/${resolved.repo}` },
+    });
   }
 
   const github = new GithubClient(ghToken, resolved.owner, resolved.repo);
@@ -197,6 +278,13 @@ export async function processAsanaTaskStage5(params: {
 
     // If the issue already existed, ensure the tool status reflects that.
     if (updated.github_issue_number && !['PR_CREATED', 'WAITING_CI', 'DEPLOYED', 'FAILED'].includes(updated.status)) {
+      await insertTaskEvent({
+        taskId: updated.id,
+        kind: 'task.status_changed',
+        eventType: 'task.status_changed',
+        source: 'system',
+        refJson: { to: 'ISSUE_CREATED', reason: 'issue_ensured' },
+      });
       await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: params.asanaTaskGid, status: 'ISSUE_CREATED' });
     }
   }

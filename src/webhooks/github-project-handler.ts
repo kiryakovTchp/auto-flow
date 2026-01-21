@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { getProjectBySlug } from '../db/projects';
 import { enqueueJob } from '../db/job-queue';
 import { markDeliveryProcessed } from '../db/deliveries';
+import { insertProjectEvent } from '../db/project-events';
 import { verifyAndParseGithubWebhookForProject } from './github-project';
 
 export async function githubProjectWebhookHandler(req: Request, res: Response): Promise<void> {
@@ -28,6 +29,16 @@ export async function githubProjectWebhookHandler(req: Request, res: Response): 
       return;
     }
   }
+
+  await insertProjectEvent({
+    projectId: project.id,
+    source: 'github',
+    eventType: 'github.webhook_received',
+    deliveryId: verified.deliveryId,
+    refJson: {
+      eventName: verified.eventName,
+    },
+  });
 
   try {
     await enqueueJob({

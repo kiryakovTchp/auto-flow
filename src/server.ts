@@ -8,11 +8,11 @@ import { logger } from './logger/logger';
 import { ensureDefaultAdminUser } from './db/bootstrap';
 import { adminProtectedApiRouter } from './routes/admin-protected';
 import { adminUiProtectedRouter } from './routes/admin-ui-protected';
-import { publicRouter } from './routes/public';
 import { authUiRouter } from './routes/auth-ui';
 import { projectWebhooksUiRouter } from './routes/auth-ui-webhooks';
 import { projectTasksUiRouter } from './routes/project-tasks-ui';
 import { asanaImportUiRouter } from './routes/asana-import-ui';
+import { apiV1Router } from './routes/api-v1';
 import { runMigrations } from './db/migrations';
 import { asanaWebhookHandler } from './webhooks/asana-handler';
 import { githubWebhookHandler } from './webhooks/github-handler';
@@ -61,7 +61,7 @@ app.use(projectWebhooksUiRouter());
 app.use(projectTasksUiRouter());
 app.use(asanaImportUiRouter());
 
-app.use('/api', publicRouter());
+app.use('/api/v1', apiV1Router());
 
 // Legacy Basic-Auth admin UI (kept temporarily)
 app.use('/admin', adminUiProtectedRouter());

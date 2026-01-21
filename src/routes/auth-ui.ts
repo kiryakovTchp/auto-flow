@@ -13,6 +13,7 @@ import {
   getUserByUsername,
   deleteSession,
 } from '../db/auth';
+import { createProjectApiToken, listProjectApiTokens, revokeProjectApiToken } from '../db/api-tokens';
 import { createMembership, createProject, getMembership, getProjectBySlug, listProjects, listProjectsForUser } from '../db/projects';
 import {
   addProjectAsanaProject,
@@ -653,7 +654,58 @@ export function authUiRouter(): Router {
       res.status(403).send('Forbidden');
       return;
     }
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectSubPage(p, 'api'));
+
+    const tokens = await listProjectApiTokens(p.id);
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectApiPage(p, tokens, null, membership.role === 'admin'));
+  });
+
+  r.post('/p/:slug/api/tokens/create', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can manage API tokens');
+      return;
+    }
+
+    const name = String((req.body as any)?.name ?? '').trim();
+    const token = crypto.randomBytes(24).toString('hex');
+    await createProjectApiToken({
+      projectId: p.id,
+      tokenHash: tokenHash(token),
+      name: name || null,
+      createdBy: (req as any).auth.userId,
+    });
+
+    const tokens = await listProjectApiTokens(p.id);
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectApiPage(p, tokens, token, true));
+  });
+
+  r.post('/p/:slug/api/tokens/revoke', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can manage API tokens');
+      return;
+    }
+
+    const tokenId = String((req.body as any)?.token_id ?? '').trim();
+    if (tokenId) {
+      await revokeProjectApiToken({ projectId: p.id, tokenId });
+    }
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/api`);
   });
 
   r.get('/p/:slug/knowledge', requireSession, async (req: Request, res: Response) => {
@@ -1062,6 +1114,105 @@ function projectWebhooksPage(p: { slug: string; name: string }, githubUrl: strin
   return layout(
     `${p.name} - webhooks`,
     `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/webhooks</div>\n      ${projectNav(p, 'webhooks')}\n      <div class="muted">Stage 3: per-project webhook endpoints. Setup/validation UI will be added next.</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <div class="muted">GitHub webhook URL:</div>\n      <pre style="white-space:pre-wrap">${escapeHtml(githubUrl)}</pre>\n      <div class="muted" style="margin-top:12px">Asana webhook URL(s):</div>\n      ${asanaBlock}\n      <div class="muted" style="margin-top:12px">Validation: MVP is manual (GitHub Settings + Asana webhook setup). Auto-create is scheduled later.</div>\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
+  );
+}
+
+function projectApiPage(
+  p: { slug: string; name: string },
+  tokens: Array<{ id: string; name: string | null; created_at: string; last_used_at: string | null; revoked_at: string | null; token_hash: string }>,
+  createdToken: string | null = null,
+  canAdmin = false,
+): string {
+  const tokenList = tokens
+    .map((t) => {
+      const status = t.revoked_at ? 'revoked' : 'active';
+      const label = (t.name ?? '').trim() ? `${escapeHtml(t.name ?? '')}` : '(unnamed)';
+      const hashShort = escapeHtml(String(t.token_hash).slice(0, 10));
+      return `<tr>
+        <td>${escapeHtml(String(t.id))}</td>
+        <td>${label}</td>
+        <td>${status}</td>
+        <td class="muted">${hashShort}...</td>
+        <td class="muted">${escapeHtml(String(t.created_at))}</td>
+        <td class="muted">${escapeHtml(String(t.last_used_at ?? ''))}</td>
+        <td class="muted">${escapeHtml(String(t.revoked_at ?? ''))}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const base = `http://localhost:${escapeHtml(String(process.env.PORT ?? '3000'))}`;
+  const createdBlock = createdToken
+    ? `<div class="pill" style="border-color:#4fd1c5">Token created (shown once)</div>
+       <pre style="white-space:pre-wrap">${escapeHtml(createdToken)}</pre>
+       <div class="muted">Example:</div>
+       <pre style="white-space:pre-wrap">curl -H "Authorization: Bearer ${escapeHtml(createdToken)}" ${base}/api/v1/projects/${escapeHtml(p.slug)}/summary</pre>`
+    : '';
+
+  const adminBlock = canAdmin
+    ? `
+      <div class="muted" style="margin-top:16px">Create API token (project-scoped):</div>
+      <form method="post" action="/p/${p.slug}/api/tokens/create" style="margin-top:12px">
+        <div class="row">
+          <div>
+            <label>Name (optional)</label>
+            <input name="name" placeholder="CI dashboard" />
+          </div>
+        </div>
+        <div style="margin-top:12px"><button type="submit">Create Token</button></div>
+      </form>
+
+      <div class="muted" style="margin-top:16px">Revoke token:</div>
+      <form method="post" action="/p/${p.slug}/api/tokens/revoke" style="margin-top:12px">
+        <div class="row">
+          <div>
+            <label>Token id</label>
+            <input name="token_id" placeholder="123" />
+          </div>
+        </div>
+        <div style="margin-top:12px"><button type="submit">Revoke</button></div>
+      </form>
+    `
+    : `<div class="muted" style="margin-top:16px">Only project admins can create/revoke API tokens.</div>`;
+
+  return layout(
+    `${p.name} - api`,
+    `<div class="card">
+      <h1>${escapeHtml(p.name)}</h1>
+      <div class="muted">/p/${escapeHtml(p.slug)}/api</div>
+      ${projectNav(p, 'api')}
+      ${createdBlock}
+
+      <div class="muted" style="margin-top:16px">API endpoints (Bearer token):</div>
+      <pre style="white-space:pre-wrap">${base}/api/v1/projects/${escapeHtml(p.slug)}/summary
+${base}/api/v1/projects/${escapeHtml(p.slug)}/funnel
+${base}/api/v1/projects/${escapeHtml(p.slug)}/lead-time
+${base}/api/v1/projects/${escapeHtml(p.slug)}/failures
+${base}/api/v1/projects/${escapeHtml(p.slug)}/webhooks/health
+${base}/api/v1/projects/${escapeHtml(p.slug)}/jobs/health
+${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks/:id/events</pre>
+
+      <div class="muted" style="margin-top:16px">Tokens</div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Hash</th>
+            <th>Created</th>
+            <th>Last used</th>
+            <th>Revoked</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tokenList || '<tr><td colspan="7" class="muted">No tokens yet</td></tr>'}
+        </tbody>
+      </table>
+
+      ${adminBlock}
+
+      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>
+    </div>`,
   );
 }
 

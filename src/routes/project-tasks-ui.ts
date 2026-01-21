@@ -650,7 +650,7 @@ function taskPage(
   task: any,
   latestSpec: string | null,
   specs: Array<{ version: number; markdown: string; created_at: string }>,
-  events: Array<{ kind: string; message: string | null; created_at: string }>,
+  events: Array<{ kind: string; message: string | null; created_at: string; source?: string | null; event_type?: string | null; delivery_id?: string | null }>,
   repos: Array<{ owner: string; repo: string }>,
   opts: { canEdit: boolean },
 ): string {
@@ -665,7 +665,17 @@ function taskPage(
     .join('');
 
   const eventList = events
-    .map((e) => `<tr><td>${escapeHtml(e.created_at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.message ?? '')}</td></tr>`)
+    .map((e) => {
+      const src = e.source ?? '';
+      const t = e.event_type ?? e.kind;
+      const meta = e.delivery_id ? ` delivery=${e.delivery_id}` : '';
+      return `<tr>
+        <td>${escapeHtml(e.created_at)}</td>
+        <td>${escapeHtml(src || '-')}${escapeHtml(meta)}</td>
+        <td>${escapeHtml(t)}</td>
+        <td>${escapeHtml(e.message ?? '')}</td>
+      </tr>`;
+    })
     .join('');
 
   const body = `
@@ -779,10 +789,10 @@ function taskPage(
     <div class="nav">${specList || '<span class="muted">No versions yet</span>'}</div>
 
     <div class="muted" style="margin-top:16px">Timeline</div>
-    <table>
-      <thead><tr><th>Time</th><th>Kind</th><th>Message</th></tr></thead>
-      <tbody>${eventList || '<tr><td colspan="3" class="muted">No events yet</td></tr>'}</tbody>
-    </table>
+     <table>
+       <thead><tr><th>Time</th><th>Source</th><th>Type</th><th>Message</th></tr></thead>
+       <tbody>${eventList || '<tr><td colspan="4" class="muted">No events yet</td></tr>'}</tbody>
+     </table>
 
     <div class="muted" style="margin-top:12px"><a href="/p/${p.slug}">← Back to dashboard</a></div>
   </div>`;
