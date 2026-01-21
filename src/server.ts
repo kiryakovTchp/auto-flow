@@ -20,6 +20,7 @@ import { asanaProjectWebhookHandler } from './webhooks/asana-project-handler';
 import { githubProjectWebhookHandler } from './webhooks/github-project-handler';
 import { startJobWorker } from './services/job-worker';
 import { startReconcileScheduler } from './services/reconcile-scheduler';
+import { getMetricsText, isMetricsRequestAllowed } from './metrics/metrics';
 
 dotenv.config();
 
@@ -53,6 +54,21 @@ app.use(
 
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
+});
+
+app.get('/metrics', async (req: Request, res: Response) => {
+  if (!isMetricsRequestAllowed(req)) {
+    res.status(401).send('Unauthorized');
+    return;
+  }
+
+  try {
+    const text = await getMetricsText();
+    res.status(200).setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8').send(text);
+  } catch (err) {
+    logger.error({ err }, 'Failed to render metrics');
+    res.status(500).send('metrics error');
+  }
 });
 
 // New session-based UI

@@ -4,6 +4,7 @@ import { logger } from '../logger/logger';
 import { claimNextJob, markJobDone, markJobFailed } from '../db/job-queue';
 import { processAsanaProjectWebhookJob, processGithubProjectWebhookJob } from './webhook-job-handlers';
 import { reconcileProject } from './reconcile';
+import { incJobDone, incJobFailed } from '../metrics/metrics';
 
 export function startJobWorker(): void {
   const workerId = `w-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
@@ -26,6 +27,7 @@ export function startJobWorker(): void {
               payload: (job.payload as any)?.payload,
             });
             await markJobDone(job.id);
+            incJobDone();
             continue;
           }
 
@@ -37,12 +39,14 @@ export function startJobWorker(): void {
               payload: (job.payload as any)?.payload,
             });
             await markJobDone(job.id);
+            incJobDone();
             continue;
           }
 
           if (job.provider === 'internal' && job.kind === 'reconcile.project') {
             await reconcileProject({ projectId: String((job.payload as any)?.projectId ?? job.project_id ?? '') });
             await markJobDone(job.id);
+            incJobDone();
             continue;
           }
 
@@ -53,10 +57,12 @@ export function startJobWorker(): void {
             maxAttempts: job.max_attempts,
             error: `Unknown job kind: provider=${job.provider} kind=${job.kind}`,
           });
+          incJobFailed(job.attempts + 1 >= job.max_attempts);
         } catch (err: any) {
           const msg = String(err?.stack ?? err?.message ?? err);
           logger.error({ jobId: job.id, provider: job.provider, kind: job.kind, err: msg }, 'Job failed');
           await markJobFailed({ jobId: job.id, attempts: job.attempts + 1, maxAttempts: job.max_attempts, error: msg });
+          incJobFailed(job.attempts + 1 >= job.max_attempts);
         }
       }
     } catch (err) {

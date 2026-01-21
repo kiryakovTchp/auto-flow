@@ -169,7 +169,12 @@ export function projectTasksUiRouter(): Router {
     await processAsanaTaskStage5({ projectId: p.id, asanaProjectGid, asanaTaskGid: created.taskGid });
     const row = await getTaskByProjectAsanaGid(p.id, created.taskGid);
     if (row?.id) {
-      await insertTaskEvent({ taskId: row.id, kind: 'manual.create_task', message: `Created from UI in Asana project ${asanaProjectGid}` });
+      await insertTaskEvent({
+        taskId: row.id,
+        kind: 'manual.create_task',
+        message: `Created from UI in Asana project ${asanaProjectGid}`,
+        userId: (req as any).auth.userId,
+      });
       res.redirect(`/p/${encodeURIComponent(p.slug)}/t/${encodeURIComponent(row.id)}`);
       return;
     }
@@ -235,7 +240,12 @@ export function projectTasksUiRouter(): Router {
     }
 
     await asana.setTaskCustomFields(task.asana_gid, { [fieldCfg.repo_field_gid]: opt.gid });
-    await insertTaskEvent({ taskId: task.id, kind: 'manual.repo_set', message: `Set repo to ${repoChoice.owner}/${repoChoice.repo} (Asana custom field)` });
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'manual.repo_set',
+      message: `Set repo to ${repoChoice.owner}/${repoChoice.repo} (Asana custom field)`,
+      userId: (req as any).auth.userId,
+    });
 
     const asanaProjects = await listProjectAsanaProjects(p.id);
     const asanaProjectGid = asanaProjects[0];
@@ -245,7 +255,12 @@ export function projectTasksUiRouter(): Router {
     }
 
     await processAsanaTaskStage5({ projectId: p.id, asanaProjectGid, asanaTaskGid: task.asana_gid });
-    await insertTaskEvent({ taskId: task.id, kind: 'manual.issue_create', message: 'Triggered pipeline after setting repo' });
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'manual.issue_create',
+      message: 'Triggered pipeline after setting repo',
+      userId: (req as any).auth.userId,
+    });
 
     res.redirect(`/p/${encodeURIComponent(p.slug)}/t/${encodeURIComponent(task.id)}`);
   });
@@ -279,7 +294,7 @@ export function projectTasksUiRouter(): Router {
     }
 
     await processAsanaTaskStage5({ projectId: p.id, asanaProjectGid, asanaTaskGid: task.asana_gid });
-    await insertTaskEvent({ taskId: task.id, kind: 'manual.retry', message: 'Retry pipeline' });
+    await insertTaskEvent({ taskId: task.id, kind: 'manual.retry', message: 'Retry pipeline', userId: (req as any).auth.userId });
     res.redirect(`/p/${encodeURIComponent(p.slug)}/t/${encodeURIComponent(task.id)}`);
   });
 
@@ -336,7 +351,12 @@ export function projectTasksUiRouter(): Router {
     }
 
     await asana.setTaskCustomFields(task.asana_gid, { [fieldCfg.repo_field_gid]: opt.gid });
-    await insertTaskEvent({ taskId: task.id, kind: 'manual.change_repo', message: `Changed repo to ${repoChoice.owner}/${repoChoice.repo}` });
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'manual.change_repo',
+      message: `Changed repo to ${repoChoice.owner}/${repoChoice.repo}`,
+      userId: (req as any).auth.userId,
+    });
 
     const asanaProjects = await listProjectAsanaProjects(p.id);
     const asanaProjectGid = asanaProjects[0];
@@ -406,7 +426,12 @@ export function projectTasksUiRouter(): Router {
     }
 
     await attachPrToTaskById({ taskId: task.id, prNumber: pr.number, prUrl: pr.html_url, sha: pr.head_sha || undefined });
-    await insertTaskEvent({ taskId: task.id, kind: 'manual.force_pr', message: `Linked PR #${pr.number} ${pr.html_url}` });
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'manual.force_pr',
+      message: `Linked PR #${pr.number} ${pr.html_url}`,
+      userId: (req as any).auth.userId,
+    });
 
     await updateTaskStatusById(task.id, pr.merged ? 'WAITING_CI' : 'PR_CREATED');
 
@@ -418,7 +443,12 @@ export function projectTasksUiRouter(): Router {
     const refreshed = await getTaskById(task.id);
     if (refreshed) {
       if (pr.merged) {
-        await insertTaskEvent({ taskId: task.id, kind: 'manual.force_pr', message: 'PR is merged; task moved to WAITING_CI' });
+        await insertTaskEvent({
+          taskId: task.id,
+          kind: 'manual.force_pr',
+          message: 'PR is merged; task moved to WAITING_CI',
+          userId: (req as any).auth.userId,
+        });
       }
       // Finalize requires Asana token.
       const asanaPat = await getProjectSecretPlain(p.id, 'ASANA_PAT');
@@ -460,7 +490,12 @@ export function projectTasksUiRouter(): Router {
     }
 
     await processAsanaTaskStage5({ projectId: p.id, asanaProjectGid, asanaTaskGid: task.asana_gid });
-    await insertTaskEvent({ taskId: task.id, kind: 'manual.resync', message: 'Triggered manual resync from Asana' });
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'manual.resync',
+      message: 'Triggered manual resync from Asana',
+      userId: (req as any).auth.userId,
+    });
 
     res.redirect(`/p/${encodeURIComponent(p.slug)}/t/${encodeURIComponent(task.id)}`);
   });
@@ -500,7 +535,7 @@ export function projectTasksUiRouter(): Router {
 
     const asana = new AsanaClient(asanaPat);
     await asana.addComment(task.asana_gid, note);
-    await insertTaskEvent({ taskId: task.id, kind: 'manual.note', message: note });
+    await insertTaskEvent({ taskId: task.id, kind: 'manual.note', message: note, userId: (req as any).auth.userId });
 
     res.redirect(`/p/${encodeURIComponent(p.slug)}/t/${encodeURIComponent(task.id)}`);
   });

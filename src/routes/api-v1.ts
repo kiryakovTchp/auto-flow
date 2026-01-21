@@ -191,33 +191,75 @@ export function apiV1Router(): Router {
       const from = parseDateParam(req.query.from);
       const to = parseDateParam(req.query.to);
 
-      const q = await pool.query<{ stage: string; count: string }>(
+      // Event-based funnel (source of truth).
+      const q = await pool.query<{
+        seen: string;
+        issue: string;
+        pr: string;
+        merged: string;
+        ci_success: string;
+        deployed: string;
+      }>(
         `
-          select stage, count(*)::text as count
-          from (
-            select
-              case
-                when status = 'DEPLOYED' then 'deployed'
-                when ci_status = 'success' and github_pr_url is not null then 'ci_success'
-                when merge_commit_sha is not null then 'merged'
-                when github_pr_url is not null then 'pr'
-                when github_issue_url is not null then 'issue'
-                else 'seen'
-              end as stage
-            from tasks
+          with base as (
+            select distinct task_id
+            from task_events
             where project_id = $1
+              and event_type = 'task.created_or_seen'
               and ($2::timestamptz is null or created_at >= $2::timestamptz)
               and ($3::timestamptz is null or created_at <= $3::timestamptz)
-          ) x
-          group by stage
-          order by stage asc
+          ),
+          issue as (
+            select distinct task_id
+            from task_events
+            where project_id = $1 and event_type = 'github.issue_created'
+          ),
+          pr as (
+            select distinct task_id
+            from task_events
+            where project_id = $1 and event_type = 'github.pr_linked'
+          ),
+          merged as (
+            select distinct task_id
+            from task_events
+            where project_id = $1 and event_type = 'github.pr_merged'
+          ),
+          ci_success as (
+            select distinct task_id
+            from task_events
+            where project_id = $1
+              and event_type = 'ci.updated'
+              and (ref_json->>'status') = 'success'
+          ),
+          deployed as (
+            select distinct task_id
+            from task_events
+            where project_id = $1
+              and event_type = 'task.status_changed'
+              and (ref_json->>'to') = 'DEPLOYED'
+          )
+          select
+            (select count(*)::text from base) as seen,
+            (select count(*)::text from (select task_id from base intersect select task_id from issue) x) as issue,
+            (select count(*)::text from (select task_id from base intersect select task_id from pr) x) as pr,
+            (select count(*)::text from (select task_id from base intersect select task_id from merged) x) as merged,
+            (select count(*)::text from (select task_id from base intersect select task_id from ci_success) x) as ci_success,
+            (select count(*)::text from (select task_id from base intersect select task_id from deployed) x) as deployed
         `,
         [p.id, from ? from.toISOString() : null, to ? to.toISOString() : null],
       );
 
+      const row = q.rows[0] ?? { seen: '0', issue: '0', pr: '0', merged: '0', ci_success: '0', deployed: '0' };
       res.status(200).json({
         project: { slug: p.slug, id: p.id },
-        funnel: Object.fromEntries(q.rows.map((r0) => [r0.stage, Number(r0.count)])),
+        funnel: {
+          seen: Number(row.seen),
+          issue: Number(row.issue),
+          pr: Number(row.pr),
+          merged: Number(row.merged),
+          ci_success: Number(row.ci_success),
+          deployed: Number(row.deployed),
+        },
       });
     } catch (err) {
       next(err);
@@ -242,15 +284,34 @@ export function apiV1Router(): Router {
 
       const dist = await pool.query<{ p50: number | null; p90: number | null; n: string }>(
         `
+          with created as (
+            select task_id, min(created_at) as created_at
+            from task_events
+            where project_id = $1
+              and event_type = 'task.created_or_seen'
+              and ($2::timestamptz is null or created_at >= $2::timestamptz)
+              and ($3::timestamptz is null or created_at <= $3::timestamptz)
+            group by task_id
+          ),
+          deployed as (
+            select task_id, min(created_at) as deployed_at
+            from task_events
+            where project_id = $1
+              and event_type = 'task.status_changed'
+              and (ref_json->>'to') = 'DEPLOYED'
+            group by task_id
+          ),
+          durations as (
+            select extract(epoch from (d.deployed_at - c.created_at)) as seconds
+            from created c
+            join deployed d on d.task_id = c.task_id
+            where d.deployed_at >= c.created_at
+          )
           select
-            percentile_cont(0.5) within group (order by extract(epoch from (updated_at - created_at))) as p50,
-            percentile_cont(0.9) within group (order by extract(epoch from (updated_at - created_at))) as p90,
+            percentile_cont(0.5) within group (order by seconds) as p50,
+            percentile_cont(0.9) within group (order by seconds) as p90,
             count(*)::text as n
-          from tasks
-          where project_id = $1
-            and status = 'DEPLOYED'
-            and ($2::timestamptz is null or created_at >= $2::timestamptz)
-            and ($3::timestamptz is null or created_at <= $3::timestamptz)
+          from durations
         `,
         [p.id, from ? from.toISOString() : null, to ? to.toISOString() : null],
       );

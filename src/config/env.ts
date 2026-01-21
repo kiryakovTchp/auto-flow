@@ -19,6 +19,9 @@ const envSchema = z.object({
   // Admin
   ADMIN_API_TOKEN: z.string().optional(),
   INIT_ADMIN_TOKEN: z.string().optional(),
+
+  // Ops
+  METRICS_TOKEN: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -4,6 +4,7 @@ import { getProjectBySlug } from '../db/projects';
 import { enqueueJob } from '../db/job-queue';
 import { markDeliveryProcessed } from '../db/deliveries';
 import { insertProjectEvent } from '../db/project-events';
+import { incWebhookReceived, incWebhookUnauthorized } from '../metrics/metrics';
 import { verifyAndParseGithubWebhookForProject } from './github-project';
 
 export async function githubProjectWebhookHandler(req: Request, res: Response): Promise<void> {
@@ -16,10 +17,13 @@ export async function githubProjectWebhookHandler(req: Request, res: Response): 
 
   const verified = await verifyAndParseGithubWebhookForProject({ req, projectId: project.id });
   if (verified.kind === 'unauthorized') {
+    incWebhookUnauthorized('github');
     req.log.warn({ reason: verified.reason, projectSlug }, 'GitHub project webhook unauthorized');
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
+
+  incWebhookReceived('github');
 
   // GitHub idempotency: dedupe by delivery ID at enqueue time.
   if (verified.deliveryId) {

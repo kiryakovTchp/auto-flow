@@ -4,6 +4,7 @@ import { getProjectBySlug } from '../db/projects';
 import { verifyAndParseAsanaWebhookForProject } from './asana-project';
 import { enqueueJob } from '../db/job-queue';
 import { insertProjectEvent } from '../db/project-events';
+import { incWebhookReceived, incWebhookUnauthorized } from '../metrics/metrics';
 
 export async function asanaProjectWebhookHandler(req: Request, res: Response): Promise<void> {
   const projectSlug = String(req.params.projectId);
@@ -22,16 +23,20 @@ export async function asanaProjectWebhookHandler(req: Request, res: Response): P
   const verified = await verifyAndParseAsanaWebhookForProject({ req, projectId: project.id, asanaProjectGid });
 
   if (verified.kind === 'handshake') {
+    incWebhookReceived('asana');
     res.setHeader('X-Hook-Secret', verified.secret);
     res.status(200).send('OK');
     return;
   }
 
   if (verified.kind === 'unauthorized') {
+    incWebhookUnauthorized('asana');
     req.log.warn({ reason: verified.reason, projectSlug, asanaProjectGid }, 'Asana webhook unauthorized');
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
+
+  incWebhookReceived('asana');
 
   await insertProjectEvent({
     projectId: project.id,
