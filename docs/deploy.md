@@ -42,3 +42,20 @@ Then set username/password.
 - Encryption master key is stored in a Docker volume mounted at `/app/data`.
 - SQL migrations are executed automatically on app start.
 - `/metrics` is protected by `METRICS_TOKEN` if set (Authorization: Bearer ...). If not set, it is only accessible from localhost.
+## Staging + prod
+
+For two environments on the same VPS:
+
+1) Create env files (do not commit):
+
+```
+cp deploy/staging.env.example deploy/staging.env
+cp deploy/prod.env.example deploy/prod.env
+```
+
+2) Start each stack with a different project name:
+
+```
+docker compose -p auto_flow_staging -f deploy/docker-compose.yml --env-file deploy/staging.env up -d --build
+docker compose -p auto_flow_prod -f deploy/docker-compose.yml --env-file deploy/prod.env up -d --build
+```

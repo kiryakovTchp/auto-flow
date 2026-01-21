@@ -1,0 +1,66 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: staging or prod
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - prod
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Select environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "env=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "env=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Deploy via SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          ENV_NAME: ${{ steps.env.outputs.env }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "Missing DEPLOY_HOST/DEPLOY_USER/DEPLOY_PATH secrets";
+            exit 1;
+          fi
+
+          if [ "$ENV_NAME" = "prod" ]; then
+            STACK=auto_flow_prod
+            ENV_FILE=deploy/prod.env
+            REF=main
+          else
+            STACK=auto_flow_staging
+            ENV_FILE=deploy/staging.env
+            REF=main
+          fi
+
+          ssh -o StrictHostKeyChecking=no "$DEPLOY_USER@$DEPLOY_HOST" "bash -lc '
+            set -euo pipefail
+            cd "$DEPLOY_PATH"
+            git fetch --all
+            git checkout "$REF"
+            git pull --ff-only
+            docker compose -p "$STACK" -f deploy/docker-compose.yml --env-file "$ENV_FILE" up -d --build
+            docker image prune -f
+          '"
