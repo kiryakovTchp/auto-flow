@@ -1183,13 +1183,23 @@ function projectApiPage(
       ${createdBlock}
 
       <div class="muted" style="margin-top:16px">API endpoints (Bearer token):</div>
-      <pre style="white-space:pre-wrap">${base}/api/v1/projects/${escapeHtml(p.slug)}/summary
+      <pre style="white-space:pre-wrap">${base}/api/v1/openapi.json
+
+${base}/api/v1/projects/${escapeHtml(p.slug)}/summary
+${base}/api/v1/projects/${escapeHtml(p.slug)}/settings
+${base}/api/v1/projects/${escapeHtml(p.slug)}/links
+${base}/api/v1/projects/${escapeHtml(p.slug)}/contacts
+${base}/api/v1/projects/${escapeHtml(p.slug)}/repos
+${base}/api/v1/projects/${escapeHtml(p.slug)}/asana-projects
+${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks
+${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks/:id
+${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks/:id/events
+
 ${base}/api/v1/projects/${escapeHtml(p.slug)}/funnel
 ${base}/api/v1/projects/${escapeHtml(p.slug)}/lead-time
 ${base}/api/v1/projects/${escapeHtml(p.slug)}/failures
 ${base}/api/v1/projects/${escapeHtml(p.slug)}/webhooks/health
-${base}/api/v1/projects/${escapeHtml(p.slug)}/jobs/health
-${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks/:id/events</pre>
+${base}/api/v1/projects/${escapeHtml(p.slug)}/jobs/health</pre>
 
       <div class="muted" style="margin-top:16px">Tokens</div>
       <table>
