@@ -1,5 +1,7 @@
 import { request } from 'undici';
 
+import { incExternalApiError } from '../metrics/metrics';
+
 export type GithubIssue = {
   number: number;
   html_url: string;
@@ -48,6 +50,7 @@ export class GithubClient {
 
     const text = await res.body.text();
     if (res.statusCode < 200 || res.statusCode >= 300) {
+      incExternalApiError('github', res.statusCode);
       throw new Error(`GitHub API ${method} ${path} failed: ${res.statusCode} ${text}`);
     }
 

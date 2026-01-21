@@ -685,7 +685,16 @@ function taskPage(
   task: any,
   latestSpec: string | null,
   specs: Array<{ version: number; markdown: string; created_at: string }>,
-  events: Array<{ kind: string; message: string | null; created_at: string; source?: string | null; event_type?: string | null; delivery_id?: string | null }>,
+  events: Array<{
+    kind: string;
+    message: string | null;
+    created_at: string;
+    source?: string | null;
+    event_type?: string | null;
+    delivery_id?: string | null;
+    user_id?: string | null;
+    username?: string | null;
+  }>,
   repos: Array<{ owner: string; repo: string }>,
   opts: { canEdit: boolean },
 ): string {
@@ -704,9 +713,11 @@ function taskPage(
       const src = e.source ?? '';
       const t = e.event_type ?? e.kind;
       const meta = e.delivery_id ? ` delivery=${e.delivery_id}` : '';
+      const who = e.username ? e.username : e.user_id ? `user#${e.user_id}` : '';
       return `<tr>
         <td>${escapeHtml(e.created_at)}</td>
         <td>${escapeHtml(src || '-')}${escapeHtml(meta)}</td>
+        <td>${escapeHtml(who || '-')}</td>
         <td>${escapeHtml(t)}</td>
         <td>${escapeHtml(e.message ?? '')}</td>
       </tr>`;
@@ -825,8 +836,8 @@ function taskPage(
 
     <div class="muted" style="margin-top:16px">Timeline</div>
      <table>
-       <thead><tr><th>Time</th><th>Source</th><th>Type</th><th>Message</th></tr></thead>
-       <tbody>${eventList || '<tr><td colspan="4" class="muted">No events yet</td></tr>'}</tbody>
+       <thead><tr><th>Time</th><th>Source</th><th>Who</th><th>Type</th><th>Message</th></tr></thead>
+       <tbody>${eventList || '<tr><td colspan="5" class="muted">No events yet</td></tr>'}</tbody>
      </table>
 
     <div class="muted" style="margin-top:12px"><a href="/p/${p.slug}">← Back to dashboard</a></div>

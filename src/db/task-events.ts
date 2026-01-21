@@ -11,6 +11,7 @@ export type TaskEventRow = {
   ref_json: any;
   delivery_id: string | null;
   user_id: string | null;
+  username: string | null;
   created_at: string;
 };
 
@@ -62,7 +63,15 @@ export async function insertTaskEvent(params: {
 
 export async function listTaskEvents(taskId: string): Promise<TaskEventRow[]> {
   const res = await pool.query<TaskEventRow>(
-    'select id, task_id, project_id, kind, message, source, event_type, ref_json, delivery_id, user_id, created_at from task_events where task_id = $1 order by created_at desc',
+    `
+      select e.id, e.task_id, e.project_id, e.kind, e.message, e.source, e.event_type, e.ref_json, e.delivery_id, e.user_id,
+             u.username as username,
+             e.created_at
+      from task_events e
+      left join users u on u.id = e.user_id
+      where e.task_id = $1
+      order by e.created_at desc
+    `,
     [taskId],
   );
   return res.rows;

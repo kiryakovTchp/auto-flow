@@ -36,6 +36,10 @@ export function incJobFailed(terminal: boolean): void {
   incCounter('auto_flow_jobs_failed_total', { terminal: terminal ? 'true' : 'false' });
 }
 
+export function incExternalApiError(provider: 'asana' | 'github', statusCode: number): void {
+  incCounter('auto_flow_external_api_errors_total', { provider, status_code: String(statusCode) });
+}
+
 export function formatPrometheusText(lines: string[]): string {
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
@@ -90,6 +94,7 @@ function renderCounters(): string[] {
     { name: 'auto_flow_webhooks_unauthorized_total', help: 'Webhooks rejected as unauthorized total' },
     { name: 'auto_flow_jobs_done_total', help: 'Jobs processed successfully total' },
     { name: 'auto_flow_jobs_failed_total', help: 'Jobs failed total' },
+    { name: 'auto_flow_external_api_errors_total', help: 'External API errors total (asana/github)' },
   ];
 
   for (const s of specs) {

@@ -1,5 +1,7 @@
 import { request } from 'undici';
 
+import { incExternalApiError } from '../metrics/metrics';
+
 export type AsanaTask = {
   gid: string;
   name: string;
@@ -33,6 +35,7 @@ export class AsanaClient {
 
     const text = await res.body.text();
     if (res.statusCode < 200 || res.statusCode >= 300) {
+      incExternalApiError('asana', res.statusCode);
       throw new Error(`Asana API ${method} ${path} failed: ${res.statusCode} ${text}`);
     }
 

@@ -5,6 +5,7 @@ import { claimNextJob, markJobDone, markJobFailed } from '../db/job-queue';
 import { processAsanaProjectWebhookJob, processGithubProjectWebhookJob } from './webhook-job-handlers';
 import { reconcileProject } from './reconcile';
 import { incJobDone, incJobFailed } from '../metrics/metrics';
+import { insertProjectEvent } from '../db/project-events';
 
 export function startJobWorker(): void {
   const workerId = `w-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
@@ -58,11 +59,43 @@ export function startJobWorker(): void {
             error: `Unknown job kind: provider=${job.provider} kind=${job.kind}`,
           });
           incJobFailed(job.attempts + 1 >= job.max_attempts);
+
+          if (job.project_id) {
+            await insertProjectEvent({
+              projectId: job.project_id,
+              source: 'system',
+              eventType: 'error',
+              refJson: {
+                jobId: job.id,
+                provider: job.provider,
+                kind: job.kind,
+                attempts: job.attempts + 1,
+                maxAttempts: job.max_attempts,
+                error: `Unknown job kind: provider=${job.provider} kind=${job.kind}`,
+              },
+            });
+          }
         } catch (err: any) {
           const msg = String(err?.stack ?? err?.message ?? err);
           logger.error({ jobId: job.id, provider: job.provider, kind: job.kind, err: msg }, 'Job failed');
           await markJobFailed({ jobId: job.id, attempts: job.attempts + 1, maxAttempts: job.max_attempts, error: msg });
           incJobFailed(job.attempts + 1 >= job.max_attempts);
+
+          if (job.project_id) {
+            await insertProjectEvent({
+              projectId: job.project_id,
+              source: 'system',
+              eventType: 'error',
+              refJson: {
+                jobId: job.id,
+                provider: job.provider,
+                kind: job.kind,
+                attempts: job.attempts + 1,
+                maxAttempts: job.max_attempts,
+                error: msg,
+              },
+            });
+          }
         }
       }
     } catch (err) {
