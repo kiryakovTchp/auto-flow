@@ -9,6 +9,7 @@ import { GithubClient } from '../integrations/github';
 import { getProjectSecretPlain } from '../services/project-secure-config';
 import { joinUrl } from '../services/url';
 import { requireSession } from '../security/sessions';
+import { syncReposToAsanaRepoField } from '../services/sync-repos-to-asana';
 
 export function projectWebhooksUiRouter(): Router {
   const r = Router();
@@ -36,6 +37,7 @@ export function projectWebhooksUiRouter(): Router {
       asanaUrls,
       hooks,
       githubValidation: null,
+      repoSyncResult: null,
     }));
   });
 
@@ -70,7 +72,9 @@ export function projectWebhooksUiRouter(): Router {
         targetUrl,
         filters: [
           { resource_type: 'task', action: 'added' },
-          { resource_type: 'task', action: 'changed', fields: ['completed'] },
+          // Stage 5: react to AutoTask/repo/status custom field changes.
+          // MVP: subscribe to all task changes.
+          { resource_type: 'task', action: 'changed' },
         ],
       });
 
@@ -85,6 +89,35 @@ export function projectWebhooksUiRouter(): Router {
     }
 
     res.redirect(`/p/${encodeURIComponent(p.slug)}/webhooks`);
+  });
+
+  r.post('/p/:slug/webhooks/asana/sync-repos', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    try {
+      const r0 = await syncReposToAsanaRepoField({ projectId: p.id });
+      const base = String(req.protocol + '://' + req.get('host'));
+      const asanaUrls = (await listProjectAsanaProjects(p.id)).map((gid) => `${base}/webhooks/asana/${encodeURIComponent(p.slug)}?asana_project_gid=${encodeURIComponent(gid)}`);
+      const githubUrl = `${base}/webhooks/github/${encodeURIComponent(p.slug)}`;
+      const hooks = await listProjectWebhooks(p.id);
+      const html = webhooksPage({
+        slug: p.slug,
+        name: p.name,
+        githubUrl,
+        asanaUrls,
+        hooks,
+        githubValidation: null,
+        repoSyncResult: JSON.stringify(r0),
+      });
+      res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(html);
+    } catch (err: any) {
+      res.status(500).send(String(err?.message ?? err));
+    }
   });
 
   r.post('/p/:slug/webhooks/github/validate', requireSession, async (req: Request, res: Response) => {
@@ -121,6 +154,7 @@ export function projectWebhooksUiRouter(): Router {
       asanaUrls: (await listProjectAsanaProjects(p.id)).map((gid) => `${base}/webhooks/asana/${encodeURIComponent(p.slug)}?asana_project_gid=${encodeURIComponent(gid)}`),
       hooks: await listProjectWebhooks(p.id),
       githubValidation: report.join('\n'),
+      repoSyncResult: null,
     });
 
     res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(html);
@@ -136,6 +170,7 @@ function webhooksPage(params: {
   asanaUrls: string[];
   hooks: Array<{ provider: string; asana_project_gid: string; webhook_gid: string | null; target_url: string | null; last_delivery_at: string | null }>;
   githubValidation: string | null;
+  repoSyncResult: string | null;
 }): string {
   const asanaList = params.asanaUrls.length ? params.asanaUrls.join('\n') : '';
 
@@ -193,6 +228,15 @@ function webhooksPage(params: {
         <button type="submit">Setup Asana Webhooks</button>
       </div>
     </form>
+
+    <div style="margin-top:12px" class="muted">Repo field helper (MVP): add enum options for each configured repo</div>
+    <form method="post" action="/p/${escapeHtml(params.slug)}/webhooks/asana/sync-repos">
+      <div style="margin-top:12px">
+        <button type="submit">Sync repos to Asana Repo field</button>
+      </div>
+    </form>
+    <div style="margin-top:12px" class="muted">Repo sync result:</div>
+    <pre>${escapeHtml(params.repoSyncResult ?? 'Not run yet')}</pre>
 
     <div style="margin-top:12px" class="muted">Validate GitHub webhooks (manual-only MVP):</div>
     <form method="post" action="/p/${escapeHtml(params.slug)}/webhooks/github/validate">

@@ -129,6 +129,8 @@ export function adminApiRouter(): Router {
       const result = await ensureGithubIssueForAsanaTask({
         asana,
         github,
+        repoOwner: cfg.GITHUB_OWNER,
+        repoName: cfg.GITHUB_REPO,
         asanaTaskGid: parsed.data.asana_task_gid,
         asanaProjectGid: cfg.ASANA_PROJECT_GID ?? undefined,
       });
@@ -156,6 +158,8 @@ export function adminApiRouter(): Router {
       const result = await ensureGithubIssueForAsanaTask({
         asana,
         github,
+        repoOwner: cfg.GITHUB_OWNER,
+        repoName: cfg.GITHUB_REPO,
         asanaTaskGid: asanaGid,
         asanaProjectGid: cfg.ASANA_PROJECT_GID ?? undefined,
       });
@@ -231,7 +235,7 @@ export function adminApiRouter(): Router {
         targetUrl,
         filters: [
           { resource_type: 'task', action: 'added' },
-          { resource_type: 'task', action: 'changed', fields: ['completed'] },
+          { resource_type: 'task', action: 'changed' },
         ],
       });
 

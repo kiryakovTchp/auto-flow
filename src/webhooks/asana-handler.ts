@@ -62,6 +62,8 @@ export async function asanaWebhookHandler(req: Request, res: Response): Promise<
           const created = await ensureGithubIssueForAsanaTask({
             asana,
             github,
+            repoOwner: ghOwner,
+            repoName: ghRepo,
             asanaTaskGid: asanaGid,
             asanaProjectGid: cfg.ASANA_PROJECT_GID ?? env.ASANA_PROJECT_GID,
           });

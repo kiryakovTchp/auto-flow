@@ -73,4 +73,17 @@ export class GithubClient {
     const data = await this.ghRequest<any[]>('GET', `/repos/${this.owner}/${this.repo}/hooks`);
     return data.map((x) => ({ id: Number(x.id), active: Boolean(x.active), config: { url: x?.config?.url } }));
   }
+
+  async addIssueComment(issueNumber: number, body: string): Promise<void> {
+    await this.ghRequest('POST', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}/comments`, { body });
+  }
+
+  async addIssueLabels(issueNumber: number, labels: string[]): Promise<void> {
+    await this.ghRequest('POST', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}/labels`, { labels });
+  }
+
+  async removeIssueLabel(issueNumber: number, label: string): Promise<void> {
+    const enc = encodeURIComponent(label);
+    await this.ghRequest('DELETE', `/repos/${this.owner}/${this.repo}/issues/${issueNumber}/labels/${enc}`);
+  }
 }

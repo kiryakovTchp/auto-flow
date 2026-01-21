@@ -1,11 +1,9 @@
-import { AsanaClient } from '../integrations/asana';
 import { listTasksUpdatedSince } from '../integrations/asana-sync';
-import { getTaskByAsanaGid } from '../db/tasks-v2';
+import { getTaskByProjectAsanaGid } from '../db/tasks-v2';
 import { insertTaskEvent } from '../db/task-events';
-import { listProjectAsanaProjects, listProjectGithubRepos } from '../db/project-settings';
+import { listProjectAsanaProjects } from '../db/project-settings';
 import { getProjectSecretPlain } from './project-secure-config';
-import { GithubClient } from '../integrations/github';
-import { ensureGithubIssueForAsanaTask } from './sync-from-asana';
+import { processAsanaTaskStage5 } from './pipeline-stage5';
 
 export async function importAsanaTasksForProject(params: {
   projectId: string;
@@ -24,16 +22,7 @@ export async function importAsanaTasksForProject(params: {
     throw new Error('No Asana project GIDs configured');
   }
 
-  const repos = await listProjectGithubRepos(params.projectId);
-  const def = repos.find((r) => r.is_default) ?? repos[0];
-  if (!def) {
-    throw new Error('No GitHub repos configured');
-  }
-
   const since = new Date(Date.now() - params.days * 24 * 60 * 60 * 1000).toISOString();
-
-  const asana = new AsanaClient(asanaPat);
-  const github = new GithubClient(ghToken, def.owner, def.repo);
 
   let imported = 0;
   let createdIssues = 0;
@@ -44,22 +33,22 @@ export async function importAsanaTasksForProject(params: {
 
     for (const s of stubs) {
       imported += 1;
-      const result = await ensureGithubIssueForAsanaTask({
-        projectId: params.projectId,
-        asana,
-        github,
-        asanaTaskGid: s.gid,
-        asanaProjectGid,
-      });
 
-      if (result.created) createdIssues += 1;
+      const before = await getTaskByProjectAsanaGid(params.projectId, s.gid);
+      const beforeIssue = before?.github_issue_number ?? null;
+
+      await processAsanaTaskStage5({ projectId: params.projectId, asanaProjectGid, asanaTaskGid: s.gid });
+
+      const row = await getTaskByProjectAsanaGid(params.projectId, s.gid);
+      const afterIssue = row?.github_issue_number ?? null;
+
+      if (!beforeIssue && afterIssue) createdIssues += 1;
       else skipped += 1;
 
-      const row = await getTaskByAsanaGid(s.gid);
       if (row?.id) {
-        const msg = result.created
-          ? `Imported from Asana project ${asanaProjectGid}. Created issue #${result.issueNumber ?? ''}`
-          : `Imported from Asana project ${asanaProjectGid}. Issue already exists.`;
+        const msg = afterIssue
+          ? `Imported from Asana project ${asanaProjectGid}. Issue #${afterIssue}. Status=${row.status}`
+          : `Imported from Asana project ${asanaProjectGid}. No issue created. Status=${row.status}`;
         await insertTaskEvent({ taskId: row.id, kind: 'import.asana', message: msg });
       }
 

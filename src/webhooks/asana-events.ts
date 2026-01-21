@@ -49,3 +49,7 @@ export function isTaskAddedEvent(e: AsanaEvent): boolean {
 export function isTaskCompletedChangedEvent(e: AsanaEvent): boolean {
   return e.resource?.resource_type === 'task' && e.action === 'changed' && e.change?.field === 'completed';
 }
+
+export function isTaskChangedEvent(e: AsanaEvent): boolean {
+  return e.resource?.resource_type === 'task' && e.action === 'changed';
+}

@@ -4,10 +4,11 @@ import { getProjectBySlug } from '../db/projects';
 import { markProjectWebhookDelivery } from '../db/project-webhooks';
 import { markDeliveryProcessed } from '../db/deliveries';
 import { setCiStateBySha } from '../db/ci';
-import { attachPrToTaskByIssueNumber, getTaskByIssueNumber, updateTaskStatusByIssueNumber } from '../db/tasks-v2';
+import { attachPrToTaskById, getTaskById, getTaskByIssueNumber, getTaskByRepoIssueNumber, updateTaskStatusById } from '../db/tasks-v2';
+import { setMergeCommitShaByTaskId } from '../db/tasks-extra';
 import { AsanaClient } from '../integrations/asana';
 import { verifyAndParseGithubWebhookForProject } from './github-project';
-import { finalizeIfReady } from '../services/finalize';
+import { finalizeTaskIfReady } from '../services/finalize';
 import { getProjectSecretPlain } from '../services/project-secure-config';
 
 export async function githubProjectWebhookHandler(req: Request, res: Response): Promise<void> {
@@ -51,15 +52,20 @@ export async function githubProjectWebhookHandler(req: Request, res: Response): 
         const issueNumber = Number(verified.payload?.issue?.number);
         if (!issueNumber || Number.isNaN(issueNumber)) return;
 
-        const task = await getTaskByIssueNumber(issueNumber);
+        const repoOwner = String(verified.payload?.repository?.owner?.login ?? '').trim();
+        const repoName = String(verified.payload?.repository?.name ?? '').trim();
+
+        const task = repoOwner && repoName
+          ? await getTaskByRepoIssueNumber({ projectId: project.id, repoOwner, repoName, issueNumber })
+          : await getTaskByIssueNumber(issueNumber);
         if (!task || task.project_id !== project.id) return;
 
         if (action === 'closed') {
-          await updateTaskStatusByIssueNumber(issueNumber, 'WAITING_CI');
+          await updateTaskStatusById(task.id, 'WAITING_CI');
         }
 
         if (action === 'reopened') {
-          await updateTaskStatusByIssueNumber(issueNumber, 'ISSUE_CREATED');
+          await updateTaskStatusById(task.id, 'ISSUE_CREATED');
         }
 
         return;
@@ -71,6 +77,10 @@ export async function githubProjectWebhookHandler(req: Request, res: Response): 
         const prUrl = String(verified.payload?.pull_request?.html_url ?? '');
         const merged = Boolean(verified.payload?.pull_request?.merged);
         const sha = String(verified.payload?.pull_request?.head?.sha ?? '');
+        const mergeSha = String(verified.payload?.pull_request?.merge_commit_sha ?? '');
+
+        const repoOwner = String(verified.payload?.repository?.owner?.login ?? '').trim();
+        const repoName = String(verified.payload?.repository?.name ?? '').trim();
 
         const body = String(verified.payload?.pull_request?.body ?? '');
         const title = String(verified.payload?.pull_request?.title ?? '');
@@ -79,16 +89,20 @@ export async function githubProjectWebhookHandler(req: Request, res: Response): 
         const issueNumber = m ? Number(m[1]) : null;
 
         if (issueNumber && prNumber && prUrl) {
-          const task = await getTaskByIssueNumber(issueNumber);
+          const task = repoOwner && repoName
+            ? await getTaskByRepoIssueNumber({ projectId: project.id, repoOwner, repoName, issueNumber })
+            : await getTaskByIssueNumber(issueNumber);
           if (task && task.project_id === project.id) {
-            await attachPrToTaskByIssueNumber({ issueNumber, prNumber, prUrl, sha: sha || undefined });
-            await updateTaskStatusByIssueNumber(issueNumber, merged ? 'WAITING_CI' : 'PR_CREATED');
-          }
-        }
+            await attachPrToTaskById({ taskId: task.id, prNumber, prUrl, sha: sha || undefined });
+            await updateTaskStatusById(task.id, merged ? 'WAITING_CI' : 'PR_CREATED');
 
-        if (action === 'closed' && merged && issueNumber) {
-          await updateTaskStatusByIssueNumber(issueNumber, 'WAITING_CI');
-          await finalizeIfReady({ issueNumber, asana });
+            if (action === 'closed' && merged && mergeSha) {
+              await setMergeCommitShaByTaskId({ taskId: task.id, sha: mergeSha });
+            }
+
+            const refreshed = await getTaskById(task.id);
+            if (refreshed) await finalizeTaskIfReady({ task: refreshed, asana });
+          }
         }
 
         return;
@@ -110,7 +124,7 @@ export async function githubProjectWebhookHandler(req: Request, res: Response): 
         for (const t of tasks) {
           if (!t.github_issue_number) continue;
           if (t.project_id !== project.id) continue;
-          await finalizeIfReady({ issueNumber: t.github_issue_number, asana });
+          await finalizeTaskIfReady({ task: t, asana });
         }
       }
     } catch (err) {

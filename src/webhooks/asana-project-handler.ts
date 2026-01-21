@@ -4,7 +4,7 @@ import { markProjectWebhookDelivery } from '../db/project-webhooks';
 import { processAsanaTaskStage5 } from '../services/pipeline-stage5';
 import { getProjectBySlug } from '../db/projects';
 import { verifyAndParseAsanaWebhookForProject } from './asana-project';
-import { parseAsanaWebhookPayload, isTaskAddedEvent, isTaskCompletedChangedEvent } from './asana-events';
+import { parseAsanaWebhookPayload, isTaskAddedEvent, isTaskChangedEvent } from './asana-events';
 
 export async function asanaProjectWebhookHandler(req: Request, res: Response): Promise<void> {
   const projectSlug = String(req.params.projectId);
@@ -48,7 +48,7 @@ export async function asanaProjectWebhookHandler(req: Request, res: Response): P
         const asanaGid = e.resource?.gid;
         if (!asanaGid) continue;
 
-        if (isTaskAddedEvent(e) || isTaskCompletedChangedEvent(e)) {
+        if (isTaskAddedEvent(e) || isTaskChangedEvent(e)) {
           await processAsanaTaskStage5({ projectId: project.id, asanaProjectGid, asanaTaskGid: asanaGid });
         }
       }

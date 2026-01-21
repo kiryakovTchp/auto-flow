@@ -23,7 +23,14 @@ import {
   setDefaultRepo,
   upsertProjectKnowledge,
 } from '../db/project-settings';
-import { getAsanaFieldConfig, listAsanaStatusMap, upsertAsanaFieldConfig, upsertAsanaStatusMap, deleteAsanaStatusMap } from '../db/asana-config';
+import {
+  getAsanaFieldConfig,
+  listAsanaStatusMap,
+  upsertAsanaFieldConfig,
+  upsertAsanaStatusMap,
+  deleteAsanaStatusMap,
+} from '../db/asana-config';
+import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
 import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
 import { tokenHash } from '../security/init-admin';
 import { authenticateUser, newSessionId, optionalSession, requireSession, SESSION_COOKIE } from '../security/sessions';
@@ -248,11 +255,12 @@ export function authUiRouter(): Router {
 
     const asanaFieldCfg = await getAsanaFieldConfig(p.id);
     const statusMap = await listAsanaStatusMap(p.id);
+    const repoMap = await listRepoMap(p.id);
 
     res
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(projectSettingsPage(p, asanaProjects, repos, { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret }, asanaFieldCfg, statusMap));
+      .send(projectSettingsPage(p, asanaProjects, repos, { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret }, asanaFieldCfg, statusMap, repoMap));
   });
 
   r.post('/p/:slug/settings/secrets', requireSession, async (req: Request, res: Response) => {
@@ -391,6 +399,41 @@ export function authUiRouter(): Router {
     res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
   });
 
+  r.post('/p/:slug/settings/repo-map', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const optionName = String((req.body as any)?.option_name ?? '').trim();
+    const owner = String((req.body as any)?.owner ?? '').trim();
+    const repo = String((req.body as any)?.repo ?? '').trim();
+
+    if (optionName && owner && repo) {
+      await upsertRepoMap({ projectId: p.id, optionName, owner, repo });
+    }
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
+  });
+
+  r.post('/p/:slug/settings/repo-map/delete', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const optionName = String((req.body as any)?.option_name ?? '').trim();
+    if (optionName) {
+      await deleteRepoMap(p.id, optionName);
+    }
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
+  });
+
   r.post('/p/:slug/settings/repos/remove', requireSession, async (req: Request, res: Response) => {
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
@@ -515,6 +558,7 @@ function projectSettingsPage(
   secrets: { hasAsanaPat: boolean; hasGithubToken: boolean; hasGithubWebhookSecret: boolean },
   asanaFieldCfg: { workspace_gid: string | null; auto_field_gid: string | null; repo_field_gid: string | null; status_field_gid: string | null } | null,
   statusMap: Array<{ option_name: string; mapped_status: string }>,
+  repoMap: Array<{ option_name: string; owner: string; repo: string }>,
 ): string {
   const secretsBlock = `
     <div class="muted">Secrets (stored encrypted):</div>
@@ -598,6 +642,36 @@ function projectSettingsPage(
         </div>
       </div>
       <div style="margin-top:12px"><button type="submit">Delete Mapping</button></div>
+    </form>
+
+    <div class="muted" style="margin-top:16px">Repo mapping override (Asana Repo option name → GitHub owner/repo):</div>
+    <div class="nav">${repoMap.map((m) => `<div class=\"pill\">${escapeHtml(m.option_name)} → ${escapeHtml(m.owner)}/${escapeHtml(m.repo)}</div>`).join('') || '<span class="muted">No repo overrides</span>'}</div>
+    <div class="muted">Use when option name is not exactly "owner/repo".</div>
+    <form method="post" action="/p/${p.slug}/settings/repo-map" style="margin-top:12px">
+      <div class="row">
+        <div>
+          <label>Option name</label>
+          <input name="option_name" placeholder="Backend Repo" />
+        </div>
+        <div>
+          <label>Owner</label>
+          <input name="owner" placeholder="kiryakovTchp" />
+        </div>
+        <div>
+          <label>Repo</label>
+          <input name="repo" placeholder="auto-flow" />
+        </div>
+      </div>
+      <div style="margin-top:12px"><button type="submit">Upsert Repo Mapping</button></div>
+    </form>
+    <form method="post" action="/p/${p.slug}/settings/repo-map/delete" style="margin-top:12px">
+      <div class="row">
+        <div>
+          <label>Delete mapping by option name</label>
+          <input name="option_name" placeholder="Backend Repo" />
+        </div>
+      </div>
+      <div style="margin-top:12px"><button type="submit">Delete Repo Mapping</button></div>
     </form>
   `;
 
