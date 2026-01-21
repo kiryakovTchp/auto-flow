@@ -36,5 +36,27 @@ export function buildTaskSpecMarkdown(params: {
 }
 
 export function buildIssueBodyWithCommand(taskSpecMarkdown: string): string {
-  return `${taskSpecMarkdown}\n\n## OpenCode\n- Run: /opencode implement\n- PR MUST contain: Fixes #<issue_number>\n\n/opencode implement\n`;
+  return buildIssueBodyWithCommandV2({ taskSpecMarkdown });
+}
+
+export function buildIssueBodyWithCommandV2(params: { taskSpecMarkdown: string; projectContextMarkdown?: string | null }): string {
+  const parts: string[] = [];
+  parts.push(params.taskSpecMarkdown);
+
+  const ctx = String(params.projectContextMarkdown ?? '').trim();
+  if (ctx) {
+    parts.push('');
+    parts.push('## Project Context');
+    parts.push(ctx);
+  }
+
+  parts.push('');
+  parts.push('## OpenCode');
+  parts.push('- Run: /opencode implement');
+  parts.push('- PR MUST contain: Fixes #<issue_number>');
+  parts.push('');
+  parts.push('/opencode implement');
+  parts.push('');
+
+  return parts.join('\n');
 }

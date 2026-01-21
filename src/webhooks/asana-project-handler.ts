@@ -1,10 +1,8 @@
 import type { Request, Response } from 'express';
 
-import { markProjectWebhookDelivery } from '../db/project-webhooks';
-import { processAsanaTaskStage5 } from '../services/pipeline-stage5';
 import { getProjectBySlug } from '../db/projects';
 import { verifyAndParseAsanaWebhookForProject } from './asana-project';
-import { parseAsanaWebhookPayload, isTaskAddedEvent, isTaskChangedEvent } from './asana-events';
+import { enqueueJob } from '../db/job-queue';
 
 export async function asanaProjectWebhookHandler(req: Request, res: Response): Promise<void> {
   const projectSlug = String(req.params.projectId);
@@ -34,26 +32,20 @@ export async function asanaProjectWebhookHandler(req: Request, res: Response): P
     return;
   }
 
-  res.status(200).send('OK');
-
-  setImmediate(async () => {
-    try {
-      await markProjectWebhookDelivery({ projectId: project.id, provider: 'asana', asanaProjectGid });
-
-      const payload = parseAsanaWebhookPayload(verified.payload);
-      if (!payload.events.length) return;
-
-      // Stage 5 pipeline is project-aware and handles AutoTask gating + repo mapping.
-      for (const e of payload.events) {
-        const asanaGid = e.resource?.gid;
-        if (!asanaGid) continue;
-
-        if (isTaskAddedEvent(e) || isTaskChangedEvent(e)) {
-          await processAsanaTaskStage5({ projectId: project.id, asanaProjectGid, asanaTaskGid: asanaGid });
-        }
-      }
-    } catch (err) {
-      req.log.error({ err, projectSlug }, 'Asana project webhook handler error');
-    }
-  });
+  try {
+    await enqueueJob({
+      projectId: project.id,
+      provider: 'asana',
+      kind: 'asana.project_webhook',
+      payload: {
+        projectId: project.id,
+        asanaProjectGid,
+        payload: verified.payload,
+      },
+    });
+    res.status(200).send('OK');
+  } catch (err) {
+    req.log.error({ err, projectSlug }, 'Failed to enqueue Asana webhook job');
+    res.status(500).send('Failed to enqueue');
+  }
 }

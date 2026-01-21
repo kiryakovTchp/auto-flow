@@ -4,10 +4,19 @@ import { getEnv } from '../config/env';
 import { markDeliveryProcessed } from '../db/deliveries';
 import { setCiStateBySha } from '../db/ci';
 import { attachPrToTaskByIssueNumber, getTaskByIssueNumber, updateTaskStatusByIssueNumber } from '../db/tasks-v2';
+import { setMergeCommitShaByIssueNumber } from '../db/tasks-extra';
 import { AsanaClient } from '../integrations/asana';
+import { GithubClient } from '../integrations/github';
 import { getRuntimeConfig } from '../services/secure-config';
-import { finalizeIfReady } from '../services/finalize';
+import { finalizeIfReady, finalizeTaskIfReady } from '../services/finalize';
 import { verifyAndParseGithubWebhook } from './github';
+
+function extractFixesIssueNumber(text: string): number | null {
+  const m = text.match(/\bFixes\s+#(\d+)\b/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
 
 export async function githubWebhookHandler(req: Request, res: Response): Promise<void> {
   const verified = await verifyAndParseGithubWebhook(req);
@@ -71,6 +80,8 @@ export async function githubWebhookHandler(req: Request, res: Response): Promise
         const task = await getTaskByIssueNumber(issueNumber);
         if (!task) return;
 
+        if (task.status === 'AUTO_DISABLED' || task.status === 'CANCELLED') return;
+
         // IMPORTANT: we no longer treat issue closed as deployed.
         // Deployment is: PR merged + CI success.
         if (action === 'closed') {
@@ -92,26 +103,37 @@ export async function githubWebhookHandler(req: Request, res: Response): Promise
         const prUrl = String(verified.payload?.pull_request?.html_url ?? '');
         const merged = Boolean(verified.payload?.pull_request?.merged);
         const sha = String(verified.payload?.pull_request?.head?.sha ?? '');
+        const mergeSha = String(verified.payload?.pull_request?.merge_commit_sha ?? '');
 
         const body = String(verified.payload?.pull_request?.body ?? '');
         const title = String(verified.payload?.pull_request?.title ?? '');
         const text = `${title}\n${body}`;
-        const m = text.match(/#(\d+)/);
-        const issueNumber = m ? Number(m[1]) : null;
+        const issueNumber = extractFixesIssueNumber(text);
 
         if (issueNumber && prNumber && prUrl) {
           const task = await getTaskByIssueNumber(issueNumber);
           if (task) {
+            if (task.status === 'AUTO_DISABLED' || task.status === 'CANCELLED') return;
             await attachPrToTaskByIssueNumber({ issueNumber, prNumber, prUrl, sha: sha || undefined });
             await updateTaskStatusByIssueNumber(issueNumber, merged ? 'WAITING_CI' : 'PR_CREATED');
             req.log.info({ issueNumber, prNumber, sha, merged }, 'PR linked to task');
+
+            if (action === 'closed' && merged && mergeSha) {
+              await setMergeCommitShaByIssueNumber({ issueNumber, sha: mergeSha });
+            }
           }
         }
 
         if (action === 'closed' && merged && issueNumber) {
           await updateTaskStatusByIssueNumber(issueNumber, 'WAITING_CI');
           req.log.info({ prNumber, issueNumber }, 'PR merged (waiting CI)');
-          await finalizeIfReady({ issueNumber, asana });
+          const task = await getTaskByIssueNumber(issueNumber);
+          if (task && cfg.GITHUB_TOKEN && cfg.GITHUB_OWNER && cfg.GITHUB_REPO) {
+            const gh = new GithubClient(cfg.GITHUB_TOKEN, cfg.GITHUB_OWNER, cfg.GITHUB_REPO);
+            await finalizeTaskIfReady({ task, asana, github: gh });
+          } else {
+            await finalizeIfReady({ issueNumber, asana });
+          }
         }
         return;
       }
@@ -135,6 +157,7 @@ export async function githubWebhookHandler(req: Request, res: Response): Promise
         req.log.info({ headSha, matchedTasks: tasks.length }, 'Finalize candidates');
         for (const t of tasks) {
           if (!t.github_issue_number) continue;
+          if (t.status === 'AUTO_DISABLED' || t.status === 'CANCELLED') continue;
           await finalizeIfReady({ issueNumber: t.github_issue_number, asana });
         }
 

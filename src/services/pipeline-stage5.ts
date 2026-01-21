@@ -78,6 +78,25 @@ export async function processAsanaTaskStage5(params: {
     return;
   }
 
+  // If the task was previously cancelled and is now active again, reopen the issue (if any).
+  if (prevStatus === 'CANCELLED' && mappedStatus !== 'CANCELLED' && row?.github_issue_number && row.github_repo_owner && row.github_repo_name) {
+    const gh = new GithubClient(ghToken, row.github_repo_owner, row.github_repo_name);
+    try {
+      await gh.reopenIssue(row.github_issue_number);
+      if (row.id) {
+        await insertTaskEvent({
+          taskId: row.id,
+          kind: 'github.issue',
+          message: `Reopened issue #${row.github_issue_number} because Asana status is active again`,
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: params.asanaTaskGid, status: 'ISSUE_CREATED' });
+  }
+
   if (mappedStatus === 'BLOCKED') {
     if (row?.id) await insertTaskEvent({ taskId: row.id, kind: 'pipeline.blocked', message: 'Blocked by Asana status mapping' });
     await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: params.asanaTaskGid, status: 'BLOCKED' });
@@ -175,5 +194,10 @@ export async function processAsanaTaskStage5(params: {
   const updated = await getTaskByProjectAsanaGid(params.projectId, params.asanaTaskGid);
   if (updated?.id) {
     await insertTaskEvent({ taskId: updated.id, kind: 'pipeline.issue', message: `Issue ensured in ${resolved.owner}/${resolved.repo}` });
+
+    // If the issue already existed, ensure the tool status reflects that.
+    if (updated.github_issue_number && !['PR_CREATED', 'WAITING_CI', 'DEPLOYED', 'FAILED'].includes(updated.status)) {
+      await upsertTaskByAsanaGid({ projectId: params.projectId, asanaGid: params.asanaTaskGid, status: 'ISSUE_CREATED' });
+    }
   }
 }

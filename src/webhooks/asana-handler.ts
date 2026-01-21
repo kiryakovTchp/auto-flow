@@ -79,6 +79,8 @@ export async function asanaWebhookHandler(req: Request, res: Response): Promise<
           const task = await getTaskByAsanaGid(asanaGid);
           if (!task?.github_issue_number) continue;
 
+          if (task.status === 'AUTO_DISABLED' || task.status === 'CANCELLED') continue;
+
           if (newValue) {
             await github.closeIssue(task.github_issue_number);
             await updateTaskStatusByAsanaGid(asanaGid, 'WAITING_CI');

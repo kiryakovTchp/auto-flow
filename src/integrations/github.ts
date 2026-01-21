@@ -11,6 +11,12 @@ export type GithubWebhook = {
   config?: { url?: string };
 };
 
+export type GithubCheckRun = {
+  status: string;
+  conclusion: string | null;
+  html_url: string;
+};
+
 export class GithubClient {
   constructor(
     private readonly token: string,
@@ -72,6 +78,16 @@ export class GithubClient {
   async listWebhooks(): Promise<GithubWebhook[]> {
     const data = await this.ghRequest<any[]>('GET', `/repos/${this.owner}/${this.repo}/hooks`);
     return data.map((x) => ({ id: Number(x.id), active: Boolean(x.active), config: { url: x?.config?.url } }));
+  }
+
+  async listCheckRunsForRef(ref: string): Promise<GithubCheckRun[]> {
+    const data = await this.ghRequest<any>('GET', `/repos/${this.owner}/${this.repo}/commits/${ref}/check-runs`);
+    const runs = Array.isArray(data?.check_runs) ? data.check_runs : [];
+    return runs.map((r: any) => ({
+      status: String(r?.status ?? ''),
+      conclusion: r?.conclusion == null ? null : String(r.conclusion),
+      html_url: String(r?.html_url ?? ''),
+    }));
   }
 
   async addIssueComment(issueNumber: number, body: string): Promise<void> {

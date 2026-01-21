@@ -1,15 +1,9 @@
 import type { Request, Response } from 'express';
 
 import { getProjectBySlug } from '../db/projects';
-import { markProjectWebhookDelivery } from '../db/project-webhooks';
+import { enqueueJob } from '../db/job-queue';
 import { markDeliveryProcessed } from '../db/deliveries';
-import { setCiStateBySha } from '../db/ci';
-import { attachPrToTaskById, getTaskById, getTaskByIssueNumber, getTaskByRepoIssueNumber, updateTaskStatusById } from '../db/tasks-v2';
-import { setMergeCommitShaByTaskId } from '../db/tasks-extra';
-import { AsanaClient } from '../integrations/asana';
 import { verifyAndParseGithubWebhookForProject } from './github-project';
-import { finalizeTaskIfReady } from '../services/finalize';
-import { getProjectSecretPlain } from '../services/project-secure-config';
 
 export async function githubProjectWebhookHandler(req: Request, res: Response): Promise<void> {
   const projectSlug = String(req.params.projectId);
@@ -26,109 +20,30 @@ export async function githubProjectWebhookHandler(req: Request, res: Response): 
     return;
   }
 
-  res.status(200).send('OK');
-
-  setImmediate(async () => {
-    try {
-      await markProjectWebhookDelivery({ projectId: project.id, provider: 'github', asanaProjectGid: '' });
-
-      if (verified.deliveryId) {
-        const isNew = await markDeliveryProcessed('github', verified.deliveryId);
-        if (!isNew) return;
-      }
-
-      const asanaPat = await getProjectSecretPlain(project.id, 'ASANA_PAT');
-      if (!asanaPat) {
-        req.log.warn({ projectSlug }, 'Missing ASANA_PAT for project; skipping GitHub processing');
-        return;
-      }
-
-      const asana = new AsanaClient(asanaPat);
-
-      if (verified.eventName === 'ping') return;
-
-      if (verified.eventName === 'issues') {
-        const action = String(verified.payload?.action ?? '');
-        const issueNumber = Number(verified.payload?.issue?.number);
-        if (!issueNumber || Number.isNaN(issueNumber)) return;
-
-        const repoOwner = String(verified.payload?.repository?.owner?.login ?? '').trim();
-        const repoName = String(verified.payload?.repository?.name ?? '').trim();
-
-        const task = repoOwner && repoName
-          ? await getTaskByRepoIssueNumber({ projectId: project.id, repoOwner, repoName, issueNumber })
-          : await getTaskByIssueNumber(issueNumber);
-        if (!task || task.project_id !== project.id) return;
-
-        if (action === 'closed') {
-          await updateTaskStatusById(task.id, 'WAITING_CI');
-        }
-
-        if (action === 'reopened') {
-          await updateTaskStatusById(task.id, 'ISSUE_CREATED');
-        }
-
-        return;
-      }
-
-      if (verified.eventName === 'pull_request') {
-        const action = String(verified.payload?.action ?? '');
-        const prNumber = Number(verified.payload?.number);
-        const prUrl = String(verified.payload?.pull_request?.html_url ?? '');
-        const merged = Boolean(verified.payload?.pull_request?.merged);
-        const sha = String(verified.payload?.pull_request?.head?.sha ?? '');
-        const mergeSha = String(verified.payload?.pull_request?.merge_commit_sha ?? '');
-
-        const repoOwner = String(verified.payload?.repository?.owner?.login ?? '').trim();
-        const repoName = String(verified.payload?.repository?.name ?? '').trim();
-
-        const body = String(verified.payload?.pull_request?.body ?? '');
-        const title = String(verified.payload?.pull_request?.title ?? '');
-        const text = `${title}\n${body}`;
-        const m = text.match(/#(\d+)/);
-        const issueNumber = m ? Number(m[1]) : null;
-
-        if (issueNumber && prNumber && prUrl) {
-          const task = repoOwner && repoName
-            ? await getTaskByRepoIssueNumber({ projectId: project.id, repoOwner, repoName, issueNumber })
-            : await getTaskByIssueNumber(issueNumber);
-          if (task && task.project_id === project.id) {
-            await attachPrToTaskById({ taskId: task.id, prNumber, prUrl, sha: sha || undefined });
-            await updateTaskStatusById(task.id, merged ? 'WAITING_CI' : 'PR_CREATED');
-
-            if (action === 'closed' && merged && mergeSha) {
-              await setMergeCommitShaByTaskId({ taskId: task.id, sha: mergeSha });
-            }
-
-            const refreshed = await getTaskById(task.id);
-            if (refreshed) await finalizeTaskIfReady({ task: refreshed, asana });
-          }
-        }
-
-        return;
-      }
-
-      if (verified.eventName === 'workflow_run') {
-        const action = String(verified.payload?.action ?? '');
-        if (action !== 'completed') return;
-
-        const headSha = String(verified.payload?.workflow_run?.head_sha ?? '');
-        const conclusion = String(verified.payload?.workflow_run?.conclusion ?? '');
-        const url = String(verified.payload?.workflow_run?.html_url ?? '');
-        if (!headSha) return;
-
-        const status = conclusion === 'success' ? 'success' : 'failure';
-        await setCiStateBySha({ sha: headSha, status, url: url || null });
-
-        const tasks = await (await import('../db/tasks-by-sha')).getTasksByCiSha(headSha);
-        for (const t of tasks) {
-          if (!t.github_issue_number) continue;
-          if (t.project_id !== project.id) continue;
-          await finalizeTaskIfReady({ task: t, asana });
-        }
-      }
-    } catch (err) {
-      req.log.error({ err, projectSlug }, 'GitHub project webhook handler error');
+  // GitHub idempotency: dedupe by delivery ID at enqueue time.
+  if (verified.deliveryId) {
+    const isNew = await markDeliveryProcessed('github', verified.deliveryId);
+    if (!isNew) {
+      res.status(200).send('OK');
+      return;
     }
-  });
+  }
+
+  try {
+    await enqueueJob({
+      projectId: project.id,
+      provider: 'github',
+      kind: 'github.project_webhook',
+      payload: {
+        projectId: project.id,
+        deliveryId: verified.deliveryId ?? null,
+        eventName: verified.eventName,
+        payload: verified.payload,
+      },
+    });
+    res.status(200).send('OK');
+  } catch (err) {
+    req.log.error({ err, projectSlug }, 'Failed to enqueue GitHub webhook job');
+    res.status(500).send('Failed to enqueue');
+  }
 }

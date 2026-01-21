@@ -20,6 +20,20 @@ export async function listProjects(): Promise<ProjectRow[]> {
   return res.rows;
 }
 
+export async function listProjectsForUser(userId: string): Promise<ProjectRow[]> {
+  const res = await pool.query<ProjectRow>(
+    `
+      select p.*
+      from projects p
+      join project_memberships m on m.project_id = p.id
+      where m.user_id = $1
+      order by p.created_at desc
+    `,
+    [userId],
+  );
+  return res.rows;
+}
+
 export async function getProjectBySlug(slug: string): Promise<ProjectRow | null> {
   const res = await pool.query<ProjectRow>('select * from projects where slug = $1 limit 1', [slug]);
   return res.rows[0] ?? null;

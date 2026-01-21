@@ -14,11 +14,19 @@ export async function syncReposToAsanaRepoField(params: { projectId: string }): 
 
   let added = 0;
   // MVP: we attempt to add enum options by name "owner/repo".
-  // Asana will reject duplicates; we treat that as error for now.
   for (const r of repos) {
     const optionName = `${r.owner}/${r.repo}`;
-    await addEnumOptionToCustomField({ asanaPat, customFieldGid: cfg.repo_field_gid, optionName });
-    added += 1;
+    try {
+      await addEnumOptionToCustomField({ asanaPat, customFieldGid: cfg.repo_field_gid, optionName });
+      added += 1;
+    } catch (err: any) {
+      const msg = String(err?.message ?? err);
+      // Asana may return "already exists" errors for duplicates. Treat as idempotent.
+      if (msg.toLowerCase().includes('already')) {
+        continue;
+      }
+      throw err;
+    }
   }
 
   return { added };

@@ -18,6 +18,8 @@ import { asanaWebhookHandler } from './webhooks/asana-handler';
 import { githubWebhookHandler } from './webhooks/github-handler';
 import { asanaProjectWebhookHandler } from './webhooks/asana-project-handler';
 import { githubProjectWebhookHandler } from './webhooks/github-project-handler';
+import { startJobWorker } from './services/job-worker';
+import { startReconcileScheduler } from './services/reconcile-scheduler';
 
 dotenv.config();
 
@@ -33,6 +35,9 @@ app.use(
     },
   }),
 );
+
+// HTML forms in the UI are submitted as application/x-www-form-urlencoded.
+app.use(express.urlencoded({ extended: false }));
 
 app.use(cookieParser());
 
@@ -77,6 +82,9 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 async function main(): Promise<void> {
   await runMigrations();
   await ensureDefaultAdminUser();
+
+  startJobWorker();
+  startReconcileScheduler();
 
   const port = Number(process.env.PORT ?? 3000);
   app.listen(port, () => {

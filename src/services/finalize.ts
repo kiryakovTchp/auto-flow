@@ -3,8 +3,9 @@ import type { TaskRow } from '../db/tasks-v2';
 import { getTaskByIssueNumber, updateTaskStatusById } from '../db/tasks-v2';
 import { insertTaskEvent } from '../db/task-events';
 import { setAsanaCompletedByToolByTaskId } from '../db/tasks-extra';
+import type { GithubClient } from '../integrations/github';
 
-export async function finalizeTaskIfReady(params: { task: TaskRow; asana: AsanaClient }): Promise<void> {
+export async function finalizeTaskIfReady(params: { task: TaskRow; asana: AsanaClient; github?: GithubClient }): Promise<void> {
   const task = params.task;
 
   const ciOk = task.ci_status === 'success';
@@ -18,6 +19,14 @@ export async function finalizeTaskIfReady(params: { task: TaskRow; asana: AsanaC
       (task.ci_url ? ('\nCI: ' + task.ci_url) : '');
     await params.asana.addComment(task.asana_gid, msg);
 
+    if (params.github && task.github_issue_number) {
+      try {
+        await params.github.addIssueComment(task.github_issue_number, msg);
+      } catch {
+        // ignore
+      }
+    }
+
     await setAsanaCompletedByToolByTaskId({ taskId: task.id, value: true });
     await updateTaskStatusById(task.id, 'DEPLOYED');
     await insertTaskEvent({ taskId: task.id, kind: 'finalize.deployed', message: msg });
@@ -30,6 +39,14 @@ export async function finalizeTaskIfReady(params: { task: TaskRow; asana: AsanaC
       (task.github_pr_url ?? '') +
       (task.ci_url ? ('\nCI: ' + task.ci_url) : '');
     await params.asana.addComment(task.asana_gid, msg);
+
+    if (params.github && task.github_issue_number) {
+      try {
+        await params.github.addIssueComment(task.github_issue_number, msg);
+      } catch {
+        // ignore
+      }
+    }
 
     if (task.asana_completed_by_tool) {
       await params.asana.setTaskCompleted(task.asana_gid, false);

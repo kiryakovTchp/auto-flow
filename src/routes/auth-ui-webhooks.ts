@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { getProjectBySlug } from '../db/projects';
+import { getMembership } from '../db/projects';
 import { listProjectAsanaProjects, listProjectGithubRepos } from '../db/project-settings';
 import { listProjectWebhooks, upsertProjectWebhook } from '../db/project-webhooks';
 import { AsanaClient } from '../integrations/asana';
@@ -19,6 +20,12 @@ export function projectWebhooksUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership) {
+      res.status(403).send('Forbidden');
       return;
     }
 
@@ -46,6 +53,12 @@ export function projectWebhooksUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit webhooks');
       return;
     }
 
@@ -99,6 +112,12 @@ export function projectWebhooksUiRouter(): Router {
       return;
     }
 
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit webhooks');
+      return;
+    }
+
     try {
       const r0 = await syncReposToAsanaRepoField({ projectId: p.id });
       const base = String(req.protocol + '://' + req.get('host'));
@@ -125,6 +144,12 @@ export function projectWebhooksUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit webhooks');
       return;
     }
 

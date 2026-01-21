@@ -38,3 +38,26 @@ export async function setCiStateBySha(params: {
     [params.sha, params.status, params.url ?? null],
   );
 }
+
+export async function setCiStateByShaAndRepo(params: {
+  sha: string;
+  repoOwner: string;
+  repoName: string;
+  status: string;
+  url?: string | null;
+}): Promise<void> {
+  await pool.query(
+    `
+      update tasks
+      set
+        ci_sha = $1,
+        ci_status = $4,
+        ci_url = coalesce($5, ci_url),
+        updated_at = now()
+      where ci_sha = $1
+        and github_repo_owner = $2
+        and github_repo_name = $3
+    `,
+    [params.sha, params.repoOwner, params.repoName, params.status, params.url ?? null],
+  );
+}

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { getProjectBySlug } from '../db/projects';
+import { getMembership } from '../db/projects';
 import { requireSession } from '../security/sessions';
 import { importAsanaTasksForProject } from '../services/import-from-asana';
 import { pageShell, escapeHtml } from '../services/html';
@@ -14,6 +15,12 @@ export function asanaImportUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || (membership.role !== 'admin' && membership.role !== 'editor')) {
+      res.status(403).send('Forbidden');
       return;
     }
 

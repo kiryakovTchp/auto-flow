@@ -1,17 +1,19 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 
 import { getEnv } from '../config/env';
 import {
   consumeInvite,
+  createInvite,
   createSession,
   createUser,
   getInviteByTokenHash,
   getUserByUsername,
   deleteSession,
 } from '../db/auth';
-import { createMembership, createProject, getProjectBySlug, listProjects } from '../db/projects';
+import { createMembership, createProject, getMembership, getProjectBySlug, listProjects, listProjectsForUser } from '../db/projects';
 import {
   addProjectAsanaProject,
   addProjectGithubRepo,
@@ -31,6 +33,7 @@ import {
   deleteAsanaStatusMap,
 } from '../db/asana-config';
 import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
+import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
 import { tokenHash } from '../security/init-admin';
 import { authenticateUser, newSessionId, optionalSession, requireSession, SESSION_COOKIE } from '../security/sessions';
@@ -220,7 +223,7 @@ export function authUiRouter(): Router {
 
   // App pages
   r.get('/app', requireSession, async (req: Request, res: Response) => {
-    const projects = await listProjects();
+    const projects = await listProjectsForUser((req as any).auth.userId);
     res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(appPage((req as any).auth.username, projects));
   });
 
@@ -237,12 +240,35 @@ export function authUiRouter(): Router {
     res.redirect(`/p/${encodeURIComponent(p.slug)}`);
   });
 
+  r.post('/app/invites', requireSession, async (req: Request, res: Response) => {
+    const token = crypto.randomBytes(16).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await createInvite({ tokenHash: tokenHash(token), expiresAt, createdBy: (req as any).auth.userId });
+
+    const base = String(req.protocol + '://' + req.get('host'));
+    const url = `${base}/invite/${encodeURIComponent(token)}`;
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(layout('Invite created', `<div class="card"><h1>Invite</h1><div class="muted">Valid for 7 days</div><pre>${escapeHtml(url)}</pre><div style="margin-top:12px"><a href="/app">← Back</a></div></div>`));
+  });
+
 
   r.get('/p/:slug/settings', requireSession, async (req: Request, res: Response) => {
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+    if (membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
       return;
     }
 
@@ -257,10 +283,108 @@ export function authUiRouter(): Router {
     const statusMap = await listAsanaStatusMap(p.id);
     const repoMap = await listRepoMap(p.id);
 
+    const links = await listProjectLinks(p.id);
+    const contacts = await listProjectContacts(p.id);
+
     res
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(projectSettingsPage(p, asanaProjects, repos, { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret }, asanaFieldCfg, statusMap, repoMap));
+      .send(projectSettingsPage(p, asanaProjects, repos, { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret }, asanaFieldCfg, statusMap, repoMap, links, contacts));
+  });
+
+  r.post('/p/:slug/settings/links/add', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
+    const kind = String((req.body as any)?.kind ?? '').trim();
+    const url = String((req.body as any)?.url ?? '').trim();
+    const title = String((req.body as any)?.title ?? '').trim();
+    const tags = String((req.body as any)?.tags ?? '').trim();
+
+    if (kind && url) {
+      await addProjectLink({ projectId: p.id, kind, url, title: title || null, tags: tags || null });
+    }
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
+  });
+
+  r.post('/p/:slug/settings/links/delete', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
+    const id = String((req.body as any)?.id ?? '').trim();
+    if (id) {
+      await deleteProjectLink({ projectId: p.id, id });
+    }
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
+  });
+
+  r.post('/p/:slug/settings/contacts/add', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
+    const role = String((req.body as any)?.role ?? '').trim();
+    const name = String((req.body as any)?.name ?? '').trim();
+    const handle = String((req.body as any)?.handle ?? '').trim();
+
+    if (role) {
+      await addProjectContact({ projectId: p.id, role, name: name || null, handle: handle || null });
+    }
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
+  });
+
+  r.post('/p/:slug/settings/contacts/delete', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
+    const id = String((req.body as any)?.id ?? '').trim();
+    if (id) {
+      await deleteProjectContact({ projectId: p.id, id });
+    }
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
   });
 
   r.post('/p/:slug/settings/secrets', requireSession, async (req: Request, res: Response) => {
@@ -268,6 +392,12 @@ export function authUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
       return;
     }
 
@@ -292,6 +422,12 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
     const gid = String((req.body as any)?.asana_project_gid ?? '').trim();
     if (gid) await addProjectAsanaProject(p.id, gid);
 
@@ -306,6 +442,12 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
     const gid = String((req.body as any)?.asana_project_gid ?? '').trim();
     if (gid) await removeProjectAsanaProject(p.id, gid);
 
@@ -317,6 +459,12 @@ export function authUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
       return;
     }
 
@@ -340,6 +488,12 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
     const owner = String((req.body as any)?.owner ?? '').trim();
     const repo = String((req.body as any)?.repo ?? '').trim();
     if (owner && repo) await setDefaultRepo(p.id, owner, repo);
@@ -352,6 +506,12 @@ export function authUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
       return;
     }
 
@@ -374,6 +534,12 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
     const optionName = String((req.body as any)?.option_name ?? '').trim();
     const mapped = String((req.body as any)?.mapped_status ?? '').trim().toUpperCase();
     if (optionName && mapped) {
@@ -391,6 +557,12 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
     const optionName = String((req.body as any)?.option_name ?? '').trim();
     if (optionName) {
       await deleteAsanaStatusMap(p.id, optionName);
@@ -404,6 +576,12 @@ export function authUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
       return;
     }
 
@@ -426,6 +604,12 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
     const optionName = String((req.body as any)?.option_name ?? '').trim();
     if (optionName) {
       await deleteRepoMap(p.id, optionName);
@@ -439,6 +623,12 @@ export function authUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
       return;
     }
 
@@ -457,6 +647,12 @@ export function authUiRouter(): Router {
       res.status(404).send('Project not found');
       return;
     }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership) {
+      res.status(403).send('Forbidden');
+      return;
+    }
     res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectSubPage(p, 'api'));
   });
 
@@ -465,6 +661,12 @@ export function authUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership) {
+      res.status(403).send('Forbidden');
       return;
     }
 
@@ -477,6 +679,12 @@ export function authUiRouter(): Router {
     const p = await getProjectBySlug(slug);
     if (!p) {
       res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit knowledge');
       return;
     }
 
@@ -520,7 +728,7 @@ function appPage(username: string, projects: Array<{ slug: string; name: string 
 
   return layout(
     'App',
-    `<div class="card">\n      <h1>Projects</h1>\n      <div class="muted">Logged in as ${username}</div>\n      <form method="post" action="/logout" style="margin-top:10px">\n        <button type="submit">Logout</button>\n      </form>\n      <div class="nav" style="margin-top:14px">${list || '<span class="muted">No projects yet</span>'}</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Project</h1>\n      <form method="post" action="/app/projects">\n        <div class="row">\n          <div>\n            <label>Slug</label>\n            <input name="slug" placeholder="my-tool" />\n          </div>\n          <div>\n            <label>Name</label>\n            <input name="name" placeholder="My Tool" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create</button>\n        </div>\n      </form>\n    </div>`,
+    `<div class="card">\n      <h1>Projects</h1>\n      <div class="muted">Logged in as ${username}</div>\n      <form method="post" action="/logout" style="margin-top:10px">\n        <button type="submit">Logout</button>\n      </form>\n      <div class="nav" style="margin-top:14px">${list || '<span class="muted">No projects yet</span>'}</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Invite</h1>\n      <div class="muted">Creates a 7-day invite link (MVP).</div>\n      <form method="post" action="/app/invites" style="margin-top:12px">\n        <button type="submit">Create Invite Link</button>\n      </form>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Project</h1>\n      <form method="post" action="/app/projects">\n        <div class="row">\n          <div>\n            <label>Slug</label>\n            <input name="slug" placeholder="my-tool" />\n          </div>\n          <div>\n            <label>Name</label>\n            <input name="name" placeholder="My Tool" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create</button>\n        </div>\n      </form>\n    </div>`,
   );
 }
 
@@ -559,6 +767,8 @@ function projectSettingsPage(
   asanaFieldCfg: { workspace_gid: string | null; auto_field_gid: string | null; repo_field_gid: string | null; status_field_gid: string | null } | null,
   statusMap: Array<{ option_name: string; mapped_status: string }>,
   repoMap: Array<{ option_name: string; owner: string; repo: string }>,
+  links: Array<{ id: string; kind: string; url: string; title: string | null; tags: string | null }>,
+  contacts: Array<{ id: string; role: string; name: string | null; handle: string | null }>,
 ): string {
   const secretsBlock = `
     <div class="muted">Secrets (stored encrypted):</div>
@@ -763,9 +973,84 @@ function projectSettingsPage(
     </form>
   `;
 
+  const linksBlock = `
+    <div class="muted">Links:</div>
+    <div class="nav">${
+      links
+        .map((l) => `<div class=\"pill\">#${escapeHtml(l.id)} ${escapeHtml(l.kind)}: ${escapeHtml(l.title ?? '')} ${escapeHtml(l.url)}</div>`)
+        .join('') || '<span class="muted">None</span>'
+    }</div>
+    <form method="post" action="/p/${p.slug}/settings/links/add" style="margin-top:12px">
+      <div class="row">
+        <div>
+          <label>Kind</label>
+          <input name="kind" placeholder="docs" />
+        </div>
+        <div>
+          <label>URL</label>
+          <input name="url" placeholder="https://..." />
+        </div>
+        <div>
+          <label>Title (optional)</label>
+          <input name="title" placeholder="Runbook" />
+        </div>
+        <div>
+          <label>Tags (optional)</label>
+          <input name="tags" placeholder="backend, ci" />
+        </div>
+      </div>
+      <div style="margin-top:12px"><button type="submit">Add Link</button></div>
+    </form>
+    <form method="post" action="/p/${p.slug}/settings/links/delete" style="margin-top:12px">
+      <div class="row">
+        <div>
+          <label>Delete link by id</label>
+          <input name="id" placeholder="123" />
+        </div>
+      </div>
+      <div style="margin-top:12px"><button type="submit">Delete Link</button></div>
+      <div class="muted" style="margin-top:8px">Copy the id from the pills above.</div>
+    </form>
+  `;
+
+  const contactsBlock = `
+    <div class="muted">Contacts:</div>
+    <div class="nav">${
+      contacts
+        .map((c) => `<div class=\"pill\">#${escapeHtml(c.id)} ${escapeHtml(c.role)}: ${escapeHtml(c.name ?? '')} ${escapeHtml(c.handle ?? '')}</div>`)
+        .join('') || '<span class="muted">None</span>'
+    }</div>
+    <form method="post" action="/p/${p.slug}/settings/contacts/add" style="margin-top:12px">
+      <div class="row">
+        <div>
+          <label>Role</label>
+          <input name="role" placeholder="owner" />
+        </div>
+        <div>
+          <label>Name (optional)</label>
+          <input name="name" placeholder="Ivan" />
+        </div>
+        <div>
+          <label>Handle (optional)</label>
+          <input name="handle" placeholder="@kiryakov" />
+        </div>
+      </div>
+      <div style="margin-top:12px"><button type="submit">Add Contact</button></div>
+    </form>
+    <form method="post" action="/p/${p.slug}/settings/contacts/delete" style="margin-top:12px">
+      <div class="row">
+        <div>
+          <label>Delete contact by id</label>
+          <input name="id" placeholder="123" />
+        </div>
+      </div>
+      <div style="margin-top:12px"><button type="submit">Delete Contact</button></div>
+    </form>
+  `;
+
   return layout(
     `${p.name} - settings`,
-    `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/settings</div>\n      ${projectNav(p, 'settings')}\n      <div class="muted">Stage 2: edit project settings.</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${secretsBlock}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${asanaList}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${repoList}\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
+    `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/settings</div>\n      ${projectNav(p, 'settings')}\n      <div class="muted">Stage 2: edit project settings.</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${secretsBlock}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${asanaList}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${repoList}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${contactsBlock}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${linksBlock}\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
   );
 }
 
