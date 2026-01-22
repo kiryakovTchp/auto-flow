@@ -36,6 +36,7 @@ import {
 import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
+import { getOpenCodeProjectConfig, type OpenCodeProjectConfig, normalizeOpenCodeMode, normalizeOpenCodeCommand, normalizeTimeoutMinutes } from '../services/opencode-runner';
 import { AsanaClient } from '../integrations/asana';
 import { escapeHtml, pageShell, renderCodeBlock, renderLanguageToggle, renderTabs, renderTopbar } from '../services/html';
 import { getLangFromRequest, normalizeLang, setLangCookie, t, type UiLang } from '../services/i18n';
@@ -370,6 +371,8 @@ export function authUiRouter(): Router {
     const hasAsanaPat = Boolean(await getProjectSecretPlain(p.id, 'ASANA_PAT'));
     const hasGithubToken = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_TOKEN'));
     const hasGithubWebhookSecret = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_WEBHOOK_SECRET'));
+    const hasOpenAiKey = Boolean(await getProjectSecretPlain(p.id, 'OPENAI_API_KEY'));
+    const opencodeCfg = await getOpenCodeProjectConfig(p.id);
 
     const asanaFieldCfg = await getAsanaFieldConfig(p.id);
     const statusMap = await listAsanaStatusMap(p.id);
@@ -381,7 +384,22 @@ export function authUiRouter(): Router {
     res
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(projectSettingsPage(p, asanaProjects, repos, { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret }, asanaFieldCfg, statusMap, repoMap, links, contacts, lang));
+      .send(
+        projectSettingsPage(
+          p,
+          asanaProjects,
+          repos,
+          { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret },
+          asanaFieldCfg,
+          statusMap,
+          repoMap,
+          opencodeCfg,
+          { hasOpenAiKey },
+          links,
+          contacts,
+          lang,
+        ),
+      );
   });
 
   r.post('/p/:slug/settings/links/add', requireSession, async (req: Request, res: Response) => {
@@ -502,6 +520,58 @@ export function authUiRouter(): Router {
     if (ghToken) await setProjectSecret(p.id, 'GITHUB_TOKEN', ghToken);
     if (ghSecret) await setProjectSecret(p.id, 'GITHUB_WEBHOOK_SECRET', ghSecret);
     if (ocWorkdir) await setProjectSecret(p.id, 'OPENCODE_WORKDIR', ocWorkdir);
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
+  });
+
+  r.post('/p/:slug/settings/opencode', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
+    const modeRaw = String((req.body as any)?.opencode_mode ?? '').trim();
+    const commandRaw = String((req.body as any)?.opencode_command ?? '').trim();
+    const timeoutRaw = String((req.body as any)?.opencode_pr_timeout_min ?? '').trim();
+    const modelRaw = String((req.body as any)?.opencode_model ?? '').trim();
+    const workspaceRootRaw = String((req.body as any)?.opencode_workspace_root ?? '').trim();
+    const openAiKey = String((req.body as any)?.openai_api_key ?? '').trim();
+
+    const mode = normalizeOpenCodeMode(modeRaw);
+    if (mode) {
+      await setProjectSecret(p.id, 'OPENCODE_MODE', mode);
+    }
+
+    if (commandRaw) {
+      await setProjectSecret(p.id, 'OPENCODE_COMMAND', normalizeOpenCodeCommand(commandRaw));
+    }
+
+    if (timeoutRaw) {
+      const parsed = Number.parseInt(timeoutRaw, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        await setProjectSecret(p.id, 'OPENCODE_PR_TIMEOUT_MINUTES', String(normalizeTimeoutMinutes(timeoutRaw)));
+      }
+    }
+
+    if (modelRaw) {
+      await setProjectSecret(p.id, 'OPENCODE_MODEL', modelRaw);
+    }
+
+    if (workspaceRootRaw) {
+      await setProjectSecret(p.id, 'OPENCODE_WORKSPACE_ROOT', workspaceRootRaw);
+    }
+
+    if (openAiKey) {
+      await setProjectSecret(p.id, 'OPENAI_API_KEY', openAiKey);
+    }
 
     res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
   });
@@ -640,6 +710,8 @@ export function authUiRouter(): Router {
       const hasAsanaPat = Boolean(await getProjectSecretPlain(p.id, 'ASANA_PAT'));
       const hasGithubToken = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_TOKEN'));
       const hasGithubWebhookSecret = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_WEBHOOK_SECRET'));
+      const hasOpenAiKey = Boolean(await getProjectSecretPlain(p.id, 'OPENAI_API_KEY'));
+      const opencodeCfg = await getOpenCodeProjectConfig(p.id);
 
       const asanaFieldCfg = await getAsanaFieldConfig(p.id);
       const statusMap = await listAsanaStatusMap(p.id);
@@ -660,6 +732,8 @@ export function authUiRouter(): Router {
             asanaFieldCfg,
             statusMap,
             repoMap,
+            opencodeCfg,
+            { hasOpenAiKey },
             links,
             contacts,
             lang,
@@ -1296,6 +1370,8 @@ function projectSettingsPage(
   asanaFieldCfg: { workspace_gid: string | null; auto_field_gid: string | null; repo_field_gid: string | null; status_field_gid: string | null } | null,
   statusMap: Array<{ option_name: string; mapped_status: string }>,
   repoMap: Array<{ option_name: string; owner: string; repo: string }>,
+  opencodeCfg: OpenCodeProjectConfig,
+  opencodeSecrets: { hasOpenAiKey: boolean },
   links: Array<{ id: string; kind: string; url: string; title: string | null; tags: string | null }>,
   contacts: Array<{ id: string; role: string; name: string | null; handle: string | null }>,
   lang: UiLang,
@@ -1338,13 +1414,62 @@ function projectSettingsPage(
             <input name="github_webhook_secret" type="password" placeholder="••••••••" />
           </div>
           <div class="form-group">
-            <label>OpenCode Workdir</label>
+            <label>OpenCode Workdir (local launch)</label>
             <input name="opencode_workdir" placeholder="/Users/.../repo" />
           </div>
         </div>
         <div style="margin-top:16px">
           <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.save'))}</button>
         </div>
+      </form>
+    </div>
+  `;
+
+  const opencodeCard = `
+    <div class="card">
+      <div style="font-weight:900">OpenCode Runner</div>
+      <div class="muted" style="margin-top:6px">Configure how OpenCode runs for this project.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <span class="badge ${opencodeSecrets.hasOpenAiKey ? 'badge-success' : 'badge-gray'}">OpenAI Key: ${opencodeSecrets.hasOpenAiKey ? 'set' : 'missing'}</span>
+      </div>
+      <form method="post" action="/p/${p.slug}/settings/opencode" style="margin-top:16px">
+        <div class="row row-2">
+          <div class="form-group">
+            <label>Mode</label>
+            <select name="opencode_mode">
+              <option value="github-actions" ${opencodeCfg.mode === 'github-actions' ? 'selected' : ''}>github-actions</option>
+              <option value="server-runner" ${opencodeCfg.mode === 'server-runner' ? 'selected' : ''}>server-runner</option>
+              <option value="off" ${opencodeCfg.mode === 'off' ? 'selected' : ''}>off</option>
+            </select>
+            <div class="helper">github-actions posts a trigger comment. server-runner runs opencode on this server.</div>
+          </div>
+          <div class="form-group">
+            <label>Trigger Comment</label>
+            <input name="opencode_command" value="${escapeHtml(opencodeCfg.command)}" placeholder="/opencode implement" />
+            <div class="helper">Must include /opencode or /oc.</div>
+          </div>
+          <div class="form-group">
+            <label>PR Timeout (minutes)</label>
+            <input name="opencode_pr_timeout_min" value="${escapeHtml(String(opencodeCfg.prTimeoutMinutes))}" placeholder="60" />
+            <div class="helper">If no PR appears, the task is marked FAILED.</div>
+          </div>
+          <div class="form-group">
+            <label>Model</label>
+            <input name="opencode_model" value="${escapeHtml(opencodeCfg.model)}" placeholder="openai/gpt-4o-mini" />
+            <div class="helper">Used for server-runner.</div>
+          </div>
+          <div class="form-group">
+            <label>Workspace Root</label>
+            <input name="opencode_workspace_root" value="${escapeHtml(opencodeCfg.workspaceRoot ?? '')}" placeholder="/var/lib/opencode/workspaces" />
+            <div class="helper">Root folder where repos are cloned (server-runner).</div>
+          </div>
+          <div class="form-group">
+            <label>OpenAI API Key</label>
+            <input name="openai_api_key" type="password" placeholder="sk-..." />
+            <div class="helper">Stored encrypted. Leave blank to keep existing.</div>
+          </div>
+        </div>
+        <div style="margin-top:16px"><button class="btn btn-primary btn-md" type="submit">Save OpenCode</button></div>
       </form>
     </div>
   `;
@@ -1785,6 +1910,7 @@ function projectSettingsPage(
     ${noticeCard}
     <div class="grid">
       ${secretsCard}
+      ${opencodeCard}
       ${asanaFieldsCard}
       ${statusCard}
       ${repoMapCard}

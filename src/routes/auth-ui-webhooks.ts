@@ -17,6 +17,11 @@ import { getLangFromRequest, t, type UiLang } from '../services/i18n';
 export function projectWebhooksUiRouter(): Router {
   const r = Router();
 
+  const resolveBaseUrl = (req: Request): string => {
+    const envBase = String(process.env.PUBLIC_BASE_URL ?? '').trim();
+    return envBase || String(req.protocol + '://' + req.get('host'));
+  };
+
   r.get('/p/:slug/webhooks', requireSession, async (req: Request, res: Response) => {
     const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
@@ -32,7 +37,7 @@ export function projectWebhooksUiRouter(): Router {
       return;
     }
 
-    const base = String(req.protocol + '://' + req.get('host'));
+    const base = resolveBaseUrl(req);
     const asanaProjects = await listProjectAsanaProjects(p.id);
 
     const asanaUrls = asanaProjects.map((gid) => `${base}/webhooks/asana/${encodeURIComponent(p.slug)}?asana_project_gid=${encodeURIComponent(gid)}`);
@@ -119,7 +124,7 @@ export function projectWebhooksUiRouter(): Router {
 
     try {
       const r0 = await syncReposToAsanaRepoField({ projectId: p.id });
-      const base = String(req.protocol + '://' + req.get('host'));
+      const base = resolveBaseUrl(req);
       const asanaUrls = (await listProjectAsanaProjects(p.id)).map((gid) => `${base}/webhooks/asana/${encodeURIComponent(p.slug)}?asana_project_gid=${encodeURIComponent(gid)}`);
       const githubUrl = `${base}/webhooks/github/${encodeURIComponent(p.slug)}`;
       const hooks = await listProjectWebhooks(p.id);
@@ -160,7 +165,7 @@ export function projectWebhooksUiRouter(): Router {
       return;
     }
 
-    const base = String(req.protocol + '://' + req.get('host'));
+    const base = resolveBaseUrl(req);
     const expectedUrl = `${base}/webhooks/github/${encodeURIComponent(p.slug)}`;
 
     const repos = await listProjectGithubRepos(p.id);

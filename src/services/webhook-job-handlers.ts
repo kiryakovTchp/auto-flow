@@ -14,6 +14,7 @@ import { getProjectSecretPlain } from './project-secure-config';
 import { AsanaClient } from '../integrations/asana';
 import { GithubClient } from '../integrations/github';
 import { finalizeTaskIfReady } from './finalize';
+import { buildPrLinkedAsanaComment } from './opencode-runner';
 import { parseAsanaWebhookPayload, isTaskAddedEvent, isTaskChangedEvent } from '../webhooks/asana-events';
 import { processAsanaTaskStage5 } from './pipeline-stage5';
 
@@ -157,6 +158,8 @@ export async function processGithubProjectWebhookJob(params: {
           refJson: { eventName: params.eventName, action, prNumber, repoOwner, repoName },
         });
 
+        const firstLink = !task.github_pr_number;
+
         await attachPrToTaskById({ taskId: task.id, prNumber, prUrl, sha: sha || undefined });
         await updateTaskStatusById(task.id, merged ? 'WAITING_CI' : 'PR_CREATED');
 
@@ -188,6 +191,30 @@ export async function processGithubProjectWebhookJob(params: {
         if (refreshed && asana) {
           const gh = ghToken && repoOwner && repoName ? new GithubClient(ghToken, repoOwner, repoName) : undefined;
           await finalizeTaskIfReady({ task: refreshed, asana, github: gh });
+        }
+
+        if (firstLink && asana) {
+          const comment = buildPrLinkedAsanaComment({ prUrl, issueUrl: task.github_issue_url });
+          try {
+            await asana.addComment(task.asana_gid, comment);
+            await insertTaskEvent({
+              taskId: task.id,
+              kind: 'asana.comment_posted',
+              eventType: 'asana.comment_posted',
+              source: 'system',
+              message: comment,
+              refJson: { prNumber, prUrl },
+            });
+          } catch (err: any) {
+            await insertTaskEvent({
+              taskId: task.id,
+              kind: 'asana.comment_failed',
+              eventType: 'asana.comment_failed',
+              source: 'system',
+              message: String(err?.message ?? err),
+              refJson: { prNumber, prUrl },
+            });
+          }
         }
       }
     }

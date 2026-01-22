@@ -1,4 +1,5 @@
 import type { AsanaTask } from '../integrations/asana';
+import { normalizeOpenCodeCommand } from './opencode-runner';
 
 export function buildTaskSpecMarkdown(params: {
   asanaTask: AsanaTask;
@@ -39,7 +40,11 @@ export function buildIssueBodyWithCommand(taskSpecMarkdown: string): string {
   return buildIssueBodyWithCommandV2({ taskSpecMarkdown });
 }
 
-export function buildIssueBodyWithCommandV2(params: { taskSpecMarkdown: string; projectContextMarkdown?: string | null }): string {
+export function buildIssueBodyWithCommandV2(params: {
+  taskSpecMarkdown: string;
+  projectContextMarkdown?: string | null;
+  opencodeCommand?: string | null;
+}): string {
   const parts: string[] = [];
   parts.push(params.taskSpecMarkdown);
 
@@ -52,10 +57,11 @@ export function buildIssueBodyWithCommandV2(params: { taskSpecMarkdown: string; 
 
   parts.push('');
   parts.push('## OpenCode');
-  parts.push('- Run: /opencode implement');
+  const command = normalizeOpenCodeCommand(params.opencodeCommand);
+  parts.push(`- Run: ${command}`);
   parts.push('- PR MUST contain: Fixes #<issue_number>');
   parts.push('');
-  parts.push('/opencode implement');
+  parts.push(command);
   parts.push('');
 
   return parts.join('\n');

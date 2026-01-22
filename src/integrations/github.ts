@@ -27,6 +27,10 @@ export type GithubPullRequest = {
   merge_commit_sha: string | null;
 };
 
+export type GithubRepoInfo = {
+  default_branch: string;
+};
+
 export class GithubClient {
   constructor(
     private readonly token: string,
@@ -101,10 +105,38 @@ export class GithubClient {
     }));
   }
 
+  async getRepository(): Promise<GithubRepoInfo> {
+    const data = await this.ghRequest<any>('GET', `/repos/${this.owner}/${this.repo}`);
+    return { default_branch: String(data?.default_branch ?? '') };
+  }
+
   async getPullRequest(prNumber: number): Promise<GithubPullRequest> {
     const data = await this.ghRequest<any>('GET', `/repos/${this.owner}/${this.repo}/pulls/${prNumber}`);
     return {
       number: Number(data?.number ?? prNumber),
+      html_url: String(data?.html_url ?? ''),
+      merged: Boolean(data?.merged),
+      head_sha: String(data?.head?.sha ?? ''),
+      merge_commit_sha: data?.merge_commit_sha == null ? null : String(data.merge_commit_sha),
+    };
+  }
+
+  async createPullRequest(params: {
+    title: string;
+    body: string;
+    head: string;
+    base: string;
+    draft?: boolean;
+  }): Promise<GithubPullRequest> {
+    const data = await this.ghRequest<any>('POST', `/repos/${this.owner}/${this.repo}/pulls`, {
+      title: params.title,
+      body: params.body,
+      head: params.head,
+      base: params.base,
+      draft: params.draft ?? false,
+    });
+    return {
+      number: Number(data?.number ?? 0),
       html_url: String(data?.html_url ?? ''),
       merged: Boolean(data?.merged),
       head_sha: String(data?.head?.sha ?? ''),

@@ -50,9 +50,10 @@ export async function markProjectWebhookDelivery(params: {
 }): Promise<void> {
   await pool.query(
     `
-      update project_webhooks
+      insert into project_webhooks (project_id, provider, asana_project_gid, last_delivery_at)
+      values ($1, $2, $3, now())
+      on conflict (project_id, provider, asana_project_gid) do update
       set last_delivery_at = now(), updated_at = now()
-      where project_id = $1 and provider = $2 and asana_project_gid = $3
     `,
     [params.projectId, params.provider, params.asanaProjectGid ?? ''],
   );

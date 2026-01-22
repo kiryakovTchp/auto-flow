@@ -5,7 +5,13 @@ export type ProjectSecretKey =
   | 'GITHUB_TOKEN'
   | 'GITHUB_WEBHOOK_SECRET'
   | 'ASANA_WEBHOOK_SECRET'
-  | 'OPENCODE_WORKDIR';
+  | 'OPENCODE_WORKDIR'
+  | 'OPENCODE_MODE'
+  | 'OPENCODE_COMMAND'
+  | 'OPENCODE_PR_TIMEOUT_MINUTES'
+  | 'OPENCODE_MODEL'
+  | 'OPENCODE_WORKSPACE_ROOT'
+  | 'OPENAI_API_KEY';
 
 export async function upsertProjectSecret(params: {
   projectId: string;

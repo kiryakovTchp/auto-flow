@@ -1,0 +1,89 @@
+# Deployment
+
+## Recommended: server-runner (direct OpenCode on VPS)
+Auto-Flow runs `opencode` directly on the server where Auto-Flow is deployed.
+
+### 1) Install OpenCode CLI
+
+```
+curl -fsSL https://opencode.ai/install | bash
+```
+
+### 2) Ensure Auto-Flow user has access
+- `opencode` is on PATH for the Auto-Flow process.
+- `OPENCODE_WORKSPACE_ROOT` is writable by Auto-Flow.
+
+### 3) Configure project settings
+- Mode: `server-runner`
+- Model: `openai/gpt-4o-mini`
+- Workspace Root: `/var/lib/opencode/workspaces`
+- OpenAI API Key: stored in project settings (encrypted)
+
+## Alternative: GitHub Actions + self-hosted runner
+This uses the official OpenCode GitHub integration.
+
+### 1) Create a self-hosted runner
+Follow GitHub docs for your org/repo:
+- https://docs.github.com/actions/hosting-your-own-runners
+
+Register the runner on your VPS and keep it running as a service (systemd).
+
+### 2) Update workflow to target self-hosted runner
+In `.github/workflows/opencode.yml` set:
+
+```yaml
+runs-on: self-hosted
+```
+
+### 3) Minimal OpenCode workflow
+
+```yaml
+name: opencode
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  opencode:
+    if: contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')
+    runs-on: self-hosted
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Pick the provider you use
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Optional if you want to force using GH token
+          # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          model: anthropic/claude-sonnet-4-20250514
+          # share: true
+```
+
+Notes:
+- You can keep `runs-on: ubuntu-latest` if you are OK with GitHub-hosted runners.
+- `share: true` can help to get a browser link for the session (if enabled by OpenCode).
+
+## Optional: OpenCode web UI on VPS (for demo/debug)
+If you want a browser view:
+
+```
+OPENCODE_SERVER_PASSWORD=change-me opencode web --hostname 0.0.0.0 --port 4096
+```
+
+Then reverse-proxy it behind your existing ingress (Caddy/Nginx) and keep it behind auth.
+
+Docs:
+- https://opencode.ai/docs/web/
+- https://opencode.ai/docs/server/

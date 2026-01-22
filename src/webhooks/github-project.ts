@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Request } from 'express';
 
+import { getProjectSecretPlain } from '../services/project-secure-config';
 import { getProjectWebhookSecretPlain } from '../services/project-webhook-secrets';
 
 export type GithubWebhookResult =
@@ -16,7 +17,9 @@ export async function verifyAndParseGithubWebhookForProject(params: {
   const signatureHeader = req.header('x-hub-signature-256');
   if (!signatureHeader) return { kind: 'unauthorized', reason: 'missing x-hub-signature-256' };
 
-  const secret = await getProjectWebhookSecretPlain({ projectId: params.projectId, provider: 'github', asanaProjectGid: '' });
+  const secretFromSettings = await getProjectSecretPlain(params.projectId, 'GITHUB_WEBHOOK_SECRET');
+  const secretFromWebhook = await getProjectWebhookSecretPlain({ projectId: params.projectId, provider: 'github', asanaProjectGid: '' });
+  const secret = secretFromSettings ?? secretFromWebhook;
   if (!secret) return { kind: 'unauthorized', reason: 'github project webhook secret not configured' };
 
   const rawBody: Buffer | undefined = (req as any).rawBody;

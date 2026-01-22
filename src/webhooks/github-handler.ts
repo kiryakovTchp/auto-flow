@@ -9,6 +9,7 @@ import { AsanaClient } from '../integrations/asana';
 import { GithubClient } from '../integrations/github';
 import { getRuntimeConfig } from '../services/secure-config';
 import { finalizeIfReady, finalizeTaskIfReady } from '../services/finalize';
+import { buildPrLinkedAsanaComment } from '../services/opencode-runner';
 import { verifyAndParseGithubWebhook } from './github';
 
 function extractFixesIssueNumber(text: string): number | null {
@@ -114,9 +115,19 @@ export async function githubWebhookHandler(req: Request, res: Response): Promise
           const task = await getTaskByIssueNumber(issueNumber);
           if (task) {
             if (task.status === 'AUTO_DISABLED' || task.status === 'CANCELLED') return;
+            const firstLink = !task.github_pr_number;
             await attachPrToTaskByIssueNumber({ issueNumber, prNumber, prUrl, sha: sha || undefined });
             await updateTaskStatusByIssueNumber(issueNumber, merged ? 'WAITING_CI' : 'PR_CREATED');
             req.log.info({ issueNumber, prNumber, sha, merged }, 'PR linked to task');
+
+            if (firstLink) {
+              try {
+                const comment = buildPrLinkedAsanaComment({ prUrl, issueUrl: task.github_issue_url });
+                await asana.addComment(task.asana_gid, comment);
+              } catch (err) {
+                req.log.warn({ err, issueNumber }, 'Failed to post Asana comment for PR');
+              }
+            }
 
             if (action === 'closed' && merged && mergeSha) {
               await setMergeCommitShaByIssueNumber({ issueNumber, sha: mergeSha });

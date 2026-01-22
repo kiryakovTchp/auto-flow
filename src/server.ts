@@ -20,6 +20,7 @@ import { asanaProjectWebhookHandler } from './webhooks/asana-project-handler';
 import { githubProjectWebhookHandler } from './webhooks/github-project-handler';
 import { startJobWorker } from './services/job-worker';
 import { startReconcileScheduler } from './services/reconcile-scheduler';
+import { startOpenCodeWatchdogScheduler } from './services/opencode-watchdog-scheduler';
 import { getMetricsText, isMetricsRequestAllowed } from './metrics/metrics';
 
 dotenv.config();
@@ -101,6 +102,7 @@ async function main(): Promise<void> {
 
   startJobWorker();
   startReconcileScheduler();
+  startOpenCodeWatchdogScheduler();
 
   const port = Number(process.env.PORT ?? 3000);
   app.listen(port, () => {

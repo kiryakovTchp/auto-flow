@@ -254,6 +254,23 @@ export async function listTasksByProject(projectId: string, status?: TaskStatus)
   return res.rows;
 }
 
+export async function listStaleIssueCreatedTasks(params: { projectId: string; olderThanMinutes: number }): Promise<TaskRow[]> {
+  const minutes = Math.max(1, Math.floor(params.olderThanMinutes));
+  const res = await pool.query<TaskRow>(
+    `
+      select *
+      from tasks
+      where project_id = $1
+        and status = 'ISSUE_CREATED'
+        and github_pr_number is null
+        and updated_at < now() - ($2 || ' minutes')::interval
+      order by updated_at asc, id asc
+    `,
+    [params.projectId, String(minutes)],
+  );
+  return res.rows;
+}
+
 export async function listTasks(): Promise<TaskRow[]> {
   const res = await pool.query<TaskRow>('select * from tasks order by id desc');
   return res.rows;

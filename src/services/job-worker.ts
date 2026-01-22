@@ -3,6 +3,8 @@ import crypto from 'node:crypto';
 import { logger } from '../logger/logger';
 import { claimNextJob, markJobDone, markJobFailed } from '../db/job-queue';
 import { processAsanaProjectWebhookJob, processGithubProjectWebhookJob } from './webhook-job-handlers';
+import { processOpenCodeWatchdogJob } from './opencode-watchdog';
+import { processOpenCodeRunJob } from './opencode-server-runner-job';
 import { reconcileProject } from './reconcile';
 import { incJobDone, incJobFailed } from '../metrics/metrics';
 import { insertProjectEvent } from '../db/project-events';
@@ -46,6 +48,23 @@ export function startJobWorker(): void {
 
           if (job.provider === 'internal' && job.kind === 'reconcile.project') {
             await reconcileProject({ projectId: String((job.payload as any)?.projectId ?? job.project_id ?? '') });
+            await markJobDone(job.id);
+            incJobDone();
+            continue;
+          }
+
+          if (job.provider === 'internal' && job.kind === 'opencode.watchdog') {
+            await processOpenCodeWatchdogJob({ projectId: String((job.payload as any)?.projectId ?? job.project_id ?? '') });
+            await markJobDone(job.id);
+            incJobDone();
+            continue;
+          }
+
+          if (job.provider === 'internal' && job.kind === 'opencode.run') {
+            await processOpenCodeRunJob({
+              projectId: String((job.payload as any)?.projectId ?? job.project_id ?? ''),
+              taskId: String((job.payload as any)?.taskId ?? ''),
+            });
             await markJobDone(job.id);
             incJobDone();
             continue;
