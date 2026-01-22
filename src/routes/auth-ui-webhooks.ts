@@ -11,11 +11,14 @@ import { getProjectSecretPlain } from '../services/project-secure-config';
 import { joinUrl } from '../services/url';
 import { requireSession } from '../security/sessions';
 import { syncReposToAsanaRepoField } from '../services/sync-repos-to-asana';
+import { escapeHtml, pageShell, renderCodeBlock, renderLanguageToggle, renderTabs, renderTopbar } from '../services/html';
+import { getLangFromRequest, t, type UiLang } from '../services/i18n';
 
 export function projectWebhooksUiRouter(): Router {
   const r = Router();
 
   r.get('/p/:slug/webhooks', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -37,15 +40,10 @@ export function projectWebhooksUiRouter(): Router {
 
     const hooks = await listProjectWebhooks(p.id);
 
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(webhooksPage({
-      slug: p.slug,
-      name: p.name,
-      githubUrl,
-      asanaUrls,
-      hooks,
-      githubValidation: null,
-      repoSyncResult: null,
-    }));
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(webhooksPage({ lang, p, githubUrl, asanaUrls, hooks, githubValidation: null, repoSyncResult: null, canAdmin: membership.role === 'admin' }));
   });
 
   r.post('/p/:slug/webhooks/asana/setup', requireSession, async (req: Request, res: Response) => {
@@ -105,6 +103,7 @@ export function projectWebhooksUiRouter(): Router {
   });
 
   r.post('/p/:slug/webhooks/asana/sync-repos', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -125,13 +124,14 @@ export function projectWebhooksUiRouter(): Router {
       const githubUrl = `${base}/webhooks/github/${encodeURIComponent(p.slug)}`;
       const hooks = await listProjectWebhooks(p.id);
       const html = webhooksPage({
-        slug: p.slug,
-        name: p.name,
+        lang,
+        p,
         githubUrl,
         asanaUrls,
         hooks,
         githubValidation: null,
         repoSyncResult: JSON.stringify(r0),
+        canAdmin: membership.role === 'admin',
       });
       res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(html);
     } catch (err: any) {
@@ -140,6 +140,7 @@ export function projectWebhooksUiRouter(): Router {
   });
 
   r.post('/p/:slug/webhooks/github/validate', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -173,13 +174,14 @@ export function projectWebhooksUiRouter(): Router {
     }
 
     const html = webhooksPage({
-      slug: p.slug,
-      name: p.name,
+      lang,
+      p,
       githubUrl: expectedUrl,
       asanaUrls: (await listProjectAsanaProjects(p.id)).map((gid) => `${base}/webhooks/asana/${encodeURIComponent(p.slug)}?asana_project_gid=${encodeURIComponent(gid)}`),
       hooks: await listProjectWebhooks(p.id),
       githubValidation: report.join('\n'),
       repoSyncResult: null,
+      canAdmin: membership.role === 'admin',
     });
 
     res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(html);
@@ -189,15 +191,42 @@ export function projectWebhooksUiRouter(): Router {
 }
 
 function webhooksPage(params: {
-  slug: string;
-  name: string;
+  lang: UiLang;
+  p: { slug: string; name: string };
   githubUrl: string;
   asanaUrls: string[];
   hooks: Array<{ provider: string; asana_project_gid: string; webhook_gid: string | null; target_url: string | null; last_delivery_at: string | null }>;
   githubValidation: string | null;
   repoSyncResult: string | null;
+  canAdmin: boolean;
 }): string {
-  const asanaList = params.asanaUrls.length ? params.asanaUrls.join('\n') : '';
+  const lang = params.lang;
+  const p = params.p;
+
+  const tabs = renderTabs(
+    [
+      { key: 'home', label: 'Home', href: `/p/${p.slug}` },
+      { key: 'settings', label: t(lang, 'screens.settings.title'), href: `/p/${p.slug}/settings` },
+      { key: 'webhooks', label: t(lang, 'screens.webhooks.title'), href: `/p/${p.slug}/webhooks` },
+      { key: 'api', label: t(lang, 'screens.api.title'), href: `/p/${p.slug}/api` },
+      { key: 'knowledge', label: t(lang, 'screens.knowledge.title'), href: `/p/${p.slug}/knowledge` },
+    ],
+    'webhooks',
+  );
+
+  const top = renderTopbar({
+    title: p.name,
+    subtitle: `/p/${p.slug}/webhooks`,
+    tabsHtml: tabs,
+    rightHtml: `<a class="btn btn-secondary btn-sm" href="/p/${p.slug}">${escapeHtml(t(lang, 'common.back'))}</a>${renderLanguageToggle(lang)}`,
+  });
+
+  const githubSetupText = [
+    `Payload URL: ${params.githubUrl}`,
+    'Content type: application/json',
+    'Secret: (Project Settings -> Secrets)',
+    'Events: Issues, Issue comments, Pull requests, Workflow runs',
+  ].join('\n');
 
   const hooksText = params.hooks.length
     ? params.hooks
@@ -208,86 +237,77 @@ function webhooksPage(params: {
         .join('\n')
     : 'No deliveries yet';
 
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(params.name)} - webhooks</title>
-<style>
-  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b0f14;color:#e8eef7;}
-  .wrap{max-width:860px;margin:0 auto;padding:24px 16px;}
-  .card{border:1px solid rgba(232,238,247,0.12);background:rgba(255,255,255,0.06);border-radius:14px;padding:16px;}
-  pre{border:1px solid rgba(232,238,247,0.12);background:rgba(0,0,0,0.22);border-radius:12px;padding:10px 12px;white-space:pre-wrap;}
-  label{font-size:12px;color:rgba(232,238,247,0.72);display:block;margin-bottom:6px;}
-  input{width:100%;box-sizing:border-box;border-radius:12px;border:1px solid rgba(232,238,247,0.12);background:rgba(0,0,0,0.22);color:#e8eef7;padding:10px 12px;}
-  button{border:1px solid rgba(232,238,247,0.12);background:rgba(255,255,255,0.08);color:#e8eef7;padding:10px 12px;border-radius:12px;cursor:pointer;}
-  a{color:#7aa2ff;text-decoration:none;}
-  .muted{color:rgba(232,238,247,0.72);font-size:13px;}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="card">
-    <h1 style="margin:0 0 8px">${escapeHtml(params.name)} / webhooks</h1>
-    <div class="muted">/p/${escapeHtml(params.slug)}/webhooks</div>
-    <div style="margin-top:12px" class="muted">GitHub webhook URL:</div>
-    <pre>${escapeHtml(params.githubUrl)}</pre>
+  const githubCard = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.webhooks.github_webhook_url'))}</div>
+      <div style="margin-top:12px">${renderCodeBlock(params.githubUrl, { copyLabel: t(lang, 'common.copy') })}</div>
+      <div class="muted" style="margin-top:12px">GitHub Settings -> Webhooks</div>
+      <div style="margin-top:10px">${renderCodeBlock(githubSetupText, { copyLabel: t(lang, 'common.copy') })}</div>
+    </div>
+  `;
 
-    <div style="margin-top:12px" class="muted">Copy/paste: GitHub Settings → Webhooks</div>
-    <pre>${escapeHtml(
-      'Payload URL: ' + params.githubUrl +
-      '\nContent type: application/json' +
-      '\nSecret: (from Project Settings → Secrets)' +
-      '\nEvents: Issues, Issue comments, Pull requests, Workflow runs'
-    )}</pre>
+  const asanaCard = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.webhooks.asana_webhook_urls'))}</div>
+      <div style="margin-top:12px">${renderCodeBlock(params.asanaUrls.join('\n'), { copyLabel: t(lang, 'common.copy') })}</div>
+    </div>
+  `;
 
-    <div style="margin-top:12px" class="muted">Asana webhook URL(s):</div>
-    <pre>${escapeHtml(asanaList)}</pre>
-
-    <div style="margin-top:12px" class="muted">Setup Asana webhooks (needs public base URL):</div>
-    <form method="post" action="/p/${escapeHtml(params.slug)}/webhooks/asana/setup">
-      <label>Public Base URL</label>
-      <input name="public_base_url" placeholder="https://xxxx.ngrok-free.app" />
-      <div style="margin-top:12px">
-        <button type="submit">Setup Asana Webhooks</button>
+  const setupCard = params.canAdmin
+    ? `
+      <div class="card">
+        <div style="font-weight:900">${escapeHtml(t(lang, 'screens.webhooks.setup_asana'))}</div>
+        <form method="post" action="/p/${escapeHtml(p.slug)}/webhooks/asana/setup" style="margin-top:16px">
+          <div class="form-group">
+            <label>${escapeHtml(t(lang, 'screens.webhooks.public_base_url'))}</label>
+            <input name="public_base_url" placeholder="https://xxxx.ngrok-free.app" />
+            <div class="helper">Base URL for webhook callbacks (no trailing slash)</div>
+          </div>
+          <div style="margin-top:12px"><button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'screens.webhooks.setup_asana'))}</button></div>
+        </form>
       </div>
-    </form>
+    `
+    : '';
 
-    <div style="margin-top:12px" class="muted">Repo field helper: add enum options for each configured repo</div>
-    <form method="post" action="/p/${escapeHtml(params.slug)}/webhooks/asana/sync-repos">
-      <div style="margin-top:12px">
-        <button type="submit">Sync repos to Asana Repo field</button>
+  const actionsCard = params.canAdmin
+    ? `
+      <div class="card">
+        <div style="font-weight:900">Validation</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+          <form method="post" action="/p/${escapeHtml(p.slug)}/webhooks/asana/sync-repos" style="display:inline">
+            <button class="btn btn-secondary btn-md" type="submit">${escapeHtml(t(lang, 'screens.webhooks.sync_repos'))}</button>
+          </form>
+          <form method="post" action="/p/${escapeHtml(p.slug)}/webhooks/github/validate" style="display:inline">
+            <button class="btn btn-secondary btn-md" type="submit">${escapeHtml(t(lang, 'screens.webhooks.validate_github'))}</button>
+          </form>
+        </div>
+        <div class="muted" style="margin-top:14px">Repo sync result</div>
+        <div style="margin-top:10px">${renderCodeBlock(params.repoSyncResult ?? 'Not run yet', { copyLabel: t(lang, 'common.copy') })}</div>
+        <div class="muted" style="margin-top:14px">GitHub validation</div>
+        <div style="margin-top:10px">${renderCodeBlock(params.githubValidation ?? 'Not checked yet', { copyLabel: t(lang, 'common.copy') })}</div>
       </div>
-    </form>
-    <div style="margin-top:12px" class="muted">Repo sync result:</div>
-    <pre>${escapeHtml(params.repoSyncResult ?? 'Not run yet')}</pre>
+    `
+    : '';
 
-    <div style="margin-top:12px" class="muted">Validate GitHub webhooks (manual):</div>
-    <form method="post" action="/p/${escapeHtml(params.slug)}/webhooks/github/validate">
-      <div style="margin-top:12px">
-        <button type="submit">Validate GitHub Webhooks</button>
+  const healthCard = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.webhooks.health'))}</div>
+      <div style="margin-top:12px">${renderCodeBlock(hooksText, { copyLabel: t(lang, 'common.copy') })}</div>
+    </div>
+  `;
+
+  const body = `
+    <div class="container">
+      ${top}
+      <div class="grid" style="gap:16px">
+        ${githubCard}
+        ${asanaCard}
+        ${setupCard}
+        ${actionsCard}
+        ${healthCard}
       </div>
-    </form>
+    </div>
+  `;
 
-    <div style="margin-top:12px" class="muted">Result (copy):</div>
-    <pre>${escapeHtml(params.githubValidation ?? 'Not checked yet')}</pre>
-
-    <div style="margin-top:12px" class="muted">Webhook health:</div>
-    <pre>${escapeHtml(hooksText)}</pre>
-
-    <div style="margin-top:12px"><a href="/p/${escapeHtml(params.slug)}">← Back</a></div>
-  </div>
-</div>
-</body>
-</html>`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+  return pageShell({ title: `${p.name} - webhooks`, lang, body });
 }

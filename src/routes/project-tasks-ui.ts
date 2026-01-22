@@ -9,7 +9,8 @@ import { attachPrToTaskById, getTaskByProjectAsanaGid, listTasksByProject, type 
 import { getLatestTaskSpec, listTaskSpecs } from '../db/taskspecs';
 import { insertTaskEvent, listTaskEvents } from '../db/task-events';
 import { requireSession } from '../security/sessions';
-import { escapeHtml, pageShell } from '../services/html';
+import { escapeHtml, pageShell, renderLanguageToggle, renderTabs, renderTopbar } from '../services/html';
+import { getLangFromRequest, t, type UiLang } from '../services/i18n';
 import { getProjectSecretPlain } from '../services/project-secure-config';
 import { AsanaClient } from '../integrations/asana';
 import { GithubClient } from '../integrations/github';
@@ -40,6 +41,7 @@ export function projectTasksUiRouter(): Router {
   }
 
   r.get('/p/:slug', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -65,10 +67,11 @@ export function projectTasksUiRouter(): Router {
     res
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(projectDashboardPage(p, tasks, statusFilter, { asanaProjects, repos, canEdit }));
+      .send(projectDashboardPage(lang, p, tasks, statusFilter, { asanaProjects, repos, canEdit }));
   });
 
   r.get('/p/:slug/t/:id', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -100,7 +103,7 @@ export function projectTasksUiRouter(): Router {
     res
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(taskPage(p, task, latest?.markdown ?? null, specs, events, repos, { canEdit }));
+      .send(taskPage(lang, p, task, latest?.markdown ?? null, specs, events, repos, { canEdit }));
   });
 
   r.post('/p/:slug/tasks/create', requireSession, async (req: Request, res: Response) => {
@@ -543,144 +546,221 @@ export function projectTasksUiRouter(): Router {
   return r;
 }
 
-function projectNav(p: { slug: string }, active: string): string {
-  const tabs = [
-    ['Home', `/p/${p.slug}`],
-    ['Settings', `/p/${p.slug}/settings`],
-    ['Webhooks', `/p/${p.slug}/webhooks`],
-    ['API', `/p/${p.slug}/api`],
-    ['Knowledge', `/p/${p.slug}/knowledge`],
-  ];
-  return `<div class="nav">${tabs
-    .map(([label, href]) => `<div class="pill" style="${label.toLowerCase() === active ? 'border-color:#4fd1c5' : ''}"><a href="${href}">${label}</a></div>`)
-    .join('')}</div>`;
+function projectTabs(p: { slug: string }, active: string, lang: UiLang): string {
+  return renderTabs(
+    [
+      { key: 'home', label: 'Home', href: `/p/${p.slug}` },
+      { key: 'settings', label: t(lang, 'screens.settings.title'), href: `/p/${p.slug}/settings` },
+      { key: 'webhooks', label: t(lang, 'screens.webhooks.title'), href: `/p/${p.slug}/webhooks` },
+      { key: 'api', label: t(lang, 'screens.api.title'), href: `/p/${p.slug}/api` },
+      { key: 'knowledge', label: t(lang, 'screens.knowledge.title'), href: `/p/${p.slug}/knowledge` },
+    ],
+    active,
+  );
+}
+
+function statusBadge(status: string): string {
+  const s = String(status ?? '').toUpperCase();
+  const cls =
+    s === 'DEPLOYED'
+      ? 'badge-success'
+      : s === 'FAILED'
+        ? 'badge-danger'
+        : s === 'BLOCKED' || s === 'NEEDS_REPO'
+          ? 'badge-warning'
+          : s === 'CANCELLED' || s === 'AUTO_DISABLED'
+            ? 'badge-gray'
+            : 'badge-status';
+  return `<span class="badge ${cls}">${escapeHtml(s)}</span>`;
 }
 
 function projectDashboardPage(
+  lang: UiLang,
   p: { slug: string; name: string },
   tasks: any[],
   status: string | undefined,
   opts: { asanaProjects: string[]; repos: Array<{ owner: string; repo: string }>; canEdit: boolean },
 ): string {
-  const statusOptions = ['','RECEIVED','TASKSPEC_CREATED','NEEDS_REPO','AUTO_DISABLED','CANCELLED','BLOCKED','ISSUE_CREATED','PR_CREATED','WAITING_CI','DEPLOYED','FAILED'];
+  const top = renderTopbar({
+    title: p.name,
+    subtitle: `/p/${p.slug}`,
+    tabsHtml: projectTabs(p, 'home', lang),
+    rightHtml: `<a class="btn btn-secondary btn-sm" href="/app">${escapeHtml(t(lang, 'common.back'))}</a>${renderLanguageToggle(lang)}`,
+  });
+
+  const statusOptions = [
+    '',
+    'RECEIVED',
+    'TASKSPEC_CREATED',
+    'NEEDS_REPO',
+    'AUTO_DISABLED',
+    'CANCELLED',
+    'BLOCKED',
+    'ISSUE_CREATED',
+    'PR_CREATED',
+    'WAITING_CI',
+    'DEPLOYED',
+    'FAILED',
+  ];
+
   const rows = tasks
-    .map((t) => {
-      const issue = t.github_issue_url ? `<a href="${escapeHtml(t.github_issue_url)}" target="_blank">Issue</a>` : '-';
-      const pr = t.github_pr_url ? `<a href="${escapeHtml(t.github_pr_url)}" target="_blank">PR</a>` : '-';
-      const ci = t.ci_url ? `<a href="${escapeHtml(t.ci_url)}" target="_blank">CI</a>` : '-';
-      return `<tr>
-        <td><a href="/p/${p.slug}/t/${t.id}">${escapeHtml(String(t.id))}</a></td>
-        <td>${escapeHtml(String(t.status))}</td>
-        <td>${escapeHtml(t.title ?? '')}</td>
-        <td>${issue}</td>
-        <td>${pr}</td>
-        <td>${ci}</td>
-        <td class="muted">${escapeHtml(String(t.updated_at ?? ''))}</td>
-      </tr>`;
+    .map((t0) => {
+      const href = `/p/${p.slug}/t/${encodeURIComponent(String(t0.id))}`;
+      const issue = t0.github_issue_url ? `<a href="${escapeHtml(t0.github_issue_url)}" target="_blank" rel="noreferrer">Issue</a>` : '';
+      const pr = t0.github_pr_url ? `<a href="${escapeHtml(t0.github_pr_url)}" target="_blank" rel="noreferrer">PR</a>` : '';
+      const ci = t0.ci_url ? `<a href="${escapeHtml(t0.ci_url)}" target="_blank" rel="noreferrer">CI</a>` : '';
+      return `
+        <tr data-row-href="${href}">
+          <td class="mono"><a href="${href}">${escapeHtml(String(t0.id))}</a></td>
+          <td>${statusBadge(String(t0.status))}</td>
+          <td>${escapeHtml(t0.title ?? '')}</td>
+          <td>${issue || '<span class="muted">-</span>'}</td>
+          <td>${pr || '<span class="muted">-</span>'}</td>
+          <td>${ci || '<span class="muted">-</span>'}</td>
+          <td class="muted">${escapeHtml(String(t0.updated_at ?? ''))}</td>
+        </tr>
+      `;
     })
     .join('');
 
-  const body = `
-  <div class="card">
-    <h1 style="margin:0 0 8px">${escapeHtml(p.name)}</h1>
-    <div class="muted">/p/${escapeHtml(p.slug)}</div>
-    ${projectNav(p, 'home')}
-
-    <form method="get" action="/p/${p.slug}" style="margin:12px 0">
-      <div class="row" style="display:grid;grid-template-columns: 220px 1fr;gap:12px;align-items:end">
-        <div>
-          <label class="muted" style="display:block;margin-bottom:6px">Status</label>
-          <select name="status">
-            ${statusOptions
-              .map((s) => `<option value="${s}" ${s === (status ?? '') ? 'selected' : ''}>${s || 'ALL'}</option>`)
-              .join('')}
-          </select>
-        </div>
-        <div class="muted">Showing ${tasks.length} tasks</div>
-      </div>
-      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
-        <button type="submit">Apply</button>
-      </div>
-    </form>
-
-    <form method="post" action="/p/${p.slug}/import/asana" style="margin:12px 0">
-      <div class="row" style="display:grid;grid-template-columns: 220px 1fr;gap:12px;align-items:end">
-        <div>
-          <label class="muted" style="display:block;margin-bottom:6px">Import last N days</label>
-          <input name="days" value="90" />
-        </div>
-        <div class="muted">Imports tasks updated recently from configured Asana project(s)</div>
-      </div>
-      <div style="margin-top:12px"><button type="submit">Sync from Asana</button></div>
-    </form>
-
-    ${opts.canEdit ? `
-      <form method="post" action="/p/${p.slug}/tasks/create" style="margin:12px 0">
-        <div class="row" style="display:grid;grid-template-columns: 1fr 1fr;gap:12px;align-items:end">
-          <div>
-            <label class="muted" style="display:block;margin-bottom:6px">Create task title</label>
-            <input name="title" placeholder="New task" />
-          </div>
-          <div>
-            <label class="muted" style="display:block;margin-bottom:6px">Asana project</label>
-            <select name="asana_project_gid">
-              ${opts.asanaProjects.map((g) => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div style="margin-top:10px">
-          <label class="muted" style="display:block;margin-bottom:6px">Notes</label>
-          <textarea name="notes" style="width:100%;box-sizing:border-box;min-height:90px;border-radius:12px;border:1px solid rgba(232,238,247,0.12);background:rgba(0,0,0,0.22);color:#e8eef7;padding:10px 12px;"></textarea>
-        </div>
-        <div class="row" style="display:grid;grid-template-columns: 1fr 220px 220px;gap:12px;align-items:end;margin-top:10px">
-          <div>
-            <label class="muted" style="display:block;margin-bottom:6px">Repo (optional)</label>
-            <select name="repo">
-              <option value="">(none)</option>
-              ${opts.repos
-                .map((r) => {
-                  const v = `${r.owner}/${r.repo}`;
-                  return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`;
-                })
+  const actions = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="row row-3" style="align-items:end">
+        <form method="get" action="/p/${p.slug}" class="row row-3" style="align-items:end">
+          <div class="form-group">
+            <label>${escapeHtml(t(lang, 'screens.dashboard.status'))}</label>
+            <select name="status">
+              ${statusOptions
+                .map((s) => `<option value="${s}" ${s === (status ?? '') ? 'selected' : ''}>${escapeHtml(s || 'ALL')}</option>`)
                 .join('')}
             </select>
           </div>
-          <div>
-            <label class="muted" style="display:block;margin-bottom:6px">AutoTask</label>
-            <input type="checkbox" name="auto_enabled" checked />
+          <div class="muted" style="padding-bottom:10px">Showing ${tasks.length} tasks</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+            <button class="btn btn-secondary btn-md" type="submit">${escapeHtml(t(lang, 'screens.dashboard.apply'))}</button>
+            <button class="btn btn-secondary btn-md" type="button" data-open-modal="modal-import">${escapeHtml(t(lang, 'screens.dashboard.sync_asana'))}</button>
+            ${opts.canEdit ? `<button class="btn btn-primary btn-md" type="button" data-open-modal="modal-create-task">${escapeHtml(t(lang, 'screens.dashboard.create_task'))}</button>` : ''}
           </div>
-          <div>
-            <button type="submit">Create Task</button>
-          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const importModal = `
+    <div class="modal-backdrop" id="modal-import" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">${escapeHtml(t(lang, 'screens.dashboard.import_title'))}</div>
+          <button class="modal-close" type="button" data-close-modal="modal-import" aria-label="Close">×</button>
         </div>
-        <div class="muted" style="margin-top:8px">Creates an Asana task and runs the pipeline.</div>
-      </form>
-    ` : ''}
+        <form method="post" action="/p/${p.slug}/import/asana">
+          <div class="modal-body">
+            <div class="form-group">
+              <label>${escapeHtml(t(lang, 'screens.dashboard.import_days'))}</label>
+              <input name="days" value="90" />
+              <div class="helper">${escapeHtml(t(lang, 'screens.dashboard.import_days_help'))}</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-import">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'screens.dashboard.sync_asana'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
 
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Status</th>
-          <th>Title</th>
-          <th>Issue</th>
-          <th>PR</th>
-          <th>CI</th>
-          <th>Updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows || '<tr><td colspan="7" class="muted">No tasks yet. Fill /settings, then press Sync from Asana.</td></tr>'}
-      </tbody>
-    </table>
+  const repoOptions = opts.repos
+    .map((r) => {
+      const v = `${r.owner}/${r.repo}`;
+      return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`;
+    })
+    .join('');
 
-    <div class="muted" style="margin-top:12px"><a href="/app">← Back to projects</a></div>
-  </div>`;
+  const asanaOptions = opts.asanaProjects.map((g) => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
 
-  return pageShell({ title: `${p.name} - tasks`, body });
+  const createTaskModal = opts.canEdit
+    ? `
+      <div class="modal-backdrop" id="modal-create-task" role="dialog" aria-modal="true">
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-title">${escapeHtml(t(lang, 'screens.dashboard.create_task_title'))}</div>
+            <button class="modal-close" type="button" data-close-modal="modal-create-task" aria-label="Close">×</button>
+          </div>
+          <form method="post" action="/p/${p.slug}/tasks/create">
+            <div class="modal-body">
+              <div class="row">
+                <div class="form-group">
+                  <label>${escapeHtml(t(lang, 'screens.dashboard.task_title'))}</label>
+                  <input name="title" placeholder="Fix login button alignment" />
+                </div>
+                <div class="row row-2">
+                  <div class="form-group">
+                    <label>Asana Project</label>
+                    <select name="asana_project_gid">${asanaOptions}</select>
+                  </div>
+                  <div class="form-group">
+                    <label>${escapeHtml(t(lang, 'screens.dashboard.task_repo'))}</label>
+                    <select name="repo"><option value="">(none)</option>${repoOptions}</select>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>${escapeHtml(t(lang, 'screens.dashboard.task_notes'))}</label>
+                  <textarea name="notes" placeholder="Additional task details..."></textarea>
+                </div>
+                <div class="form-group">
+                  <label style="text-transform:none;letter-spacing:0;font-weight:700">${escapeHtml(t(lang, 'screens.dashboard.task_auto'))}</label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <input type="checkbox" name="auto_enabled" checked style="width:auto" />
+                    <div class="muted" style="font-size:13px">Automatically run pipeline on creation</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-create-task">${escapeHtml(t(lang, 'common.cancel'))}</button>
+              <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'screens.dashboard.create_task'))}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    : '';
+
+  const table = `
+    <div class="card">
+      <div style="font-weight:900;margin-bottom:12px">Tasks</div>
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>ID</th><th>Status</th><th>Title</th><th>Issue</th><th>PR</th><th>CI</th><th>Updated</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="7" class="muted">${escapeHtml(t(lang, 'screens.dashboard.empty'))}</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  return pageShell({
+    title: `${p.name} - tasks`,
+    lang,
+    body: `<div class="container">${top}${actions}${table}</div>${importModal}${createTaskModal}`,
+    scriptsHtml: `
+      <script>
+        (function(){
+          document.addEventListener('click', function(e){
+            var tr = e.target && e.target.closest ? e.target.closest('tr[data-row-href]') : null;
+            if(!tr) return;
+            if(e.target && e.target.closest && e.target.closest('a,button,select,input,textarea,form')) return;
+            var href = tr.getAttribute('data-row-href');
+            if(href) location.href = href;
+          });
+        })();
+      </script>
+    `,
+  });
 }
 
 function taskPage(
+  lang: UiLang,
   p: { slug: string; name: string },
   task: any,
   latestSpec: string | null,
@@ -698,150 +778,210 @@ function taskPage(
   repos: Array<{ owner: string; repo: string }>,
   opts: { canEdit: boolean },
 ): string {
+  const top = renderTopbar({
+    title: `${t(lang, 'screens.task.title')} #${task.id}`,
+    subtitle: `${p.name} /p/${p.slug}/t/${task.id}`,
+    tabsHtml: projectTabs(p, 'home', lang),
+    rightHtml: `<a class="btn btn-secondary btn-sm" href="/p/${p.slug}">${escapeHtml(t(lang, 'common.back'))}</a>${renderLanguageToggle(lang)}`,
+  });
+
   const links = [
-    task.github_issue_url ? `<a href="${escapeHtml(task.github_issue_url)}" target="_blank">GitHub Issue</a>` : null,
-    task.github_pr_url ? `<a href="${escapeHtml(task.github_pr_url)}" target="_blank">PR</a>` : null,
-    task.ci_url ? `<a href="${escapeHtml(task.ci_url)}" target="_blank">CI</a>` : null,
-  ].filter(Boolean).join(' | ');
+    task.github_issue_url ? `<a href="${escapeHtml(task.github_issue_url)}" target="_blank" rel="noreferrer">GitHub Issue</a>` : null,
+    task.github_pr_url ? `<a href="${escapeHtml(task.github_pr_url)}" target="_blank" rel="noreferrer">PR</a>` : null,
+    task.ci_url ? `<a href="${escapeHtml(task.ci_url)}" target="_blank" rel="noreferrer">CI</a>` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
-  const specList = specs
-    .map((s) => `<div class="pill">v${s.version} <span class="muted">${escapeHtml(s.created_at)}</span></div>`)
-    .join('');
-
-  const eventList = events
-    .map((e) => {
-      const src = e.source ?? '';
-      const t = e.event_type ?? e.kind;
-      const meta = e.delivery_id ? ` delivery=${e.delivery_id}` : '';
-      const who = e.username ? e.username : e.user_id ? `user#${e.user_id}` : '';
-      return `<tr>
-        <td>${escapeHtml(e.created_at)}</td>
-        <td>${escapeHtml(src || '-')}${escapeHtml(meta)}</td>
-        <td>${escapeHtml(who || '-')}</td>
-        <td>${escapeHtml(t)}</td>
-        <td>${escapeHtml(e.message ?? '')}</td>
-      </tr>`;
+  const repoOptions = repos
+    .map((r) => {
+      const v = `${r.owner}/${r.repo}`;
+      return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`;
     })
     .join('');
 
-  const body = `
-  <div class="card">
-    <h1 style="margin:0 0 8px">Task ${escapeHtml(String(task.id))}</h1>
-    <div class="muted">Project: <a href="/p/${p.slug}">${escapeHtml(p.name)}</a></div>
-    ${projectNav(p, '')}
+  const versions = specs
+    .map((s) => {
+      return `
+        <details style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:#fff">
+          <summary style="cursor:pointer;font-weight:700">v${s.version} <span class="muted" style="font-weight:400">${escapeHtml(s.created_at)}</span></summary>
+          <div style="margin-top:10px"><pre style="margin:0">${escapeHtml(s.markdown)}</pre></div>
+        </details>
+      `;
+    })
+    .join('');
 
-    <div class="nav" style="margin-top:12px">
-      <div class="pill">Status: ${escapeHtml(String(task.status))}</div>
-      <div class="pill">Asana GID: ${escapeHtml(String(task.asana_gid))}</div>
-    </div>
+  const eventRows = events
+    .map((e) => {
+      const src = e.source ?? '';
+      const kind = e.event_type ?? e.kind;
+      const meta = e.delivery_id ? ` delivery=${e.delivery_id}` : '';
+      const who = e.username ? e.username : e.user_id ? `user#${e.user_id}` : '';
+      return `
+        <tr>
+          <td class="mono">${escapeHtml(e.created_at)}</td>
+          <td>${escapeHtml(src || '-')}${escapeHtml(meta)}</td>
+          <td>${escapeHtml(who || '-')}</td>
+          <td class="mono">${escapeHtml(kind)}</td>
+          <td>${escapeHtml(e.message ?? '')}</td>
+        </tr>
+      `;
+    })
+    .join('');
 
-    <div style="margin-top:8px">${links || '<span class="muted">No links yet</span>'}</div>
-
-    ${opts.canEdit ? `
-      <div style="margin-top:12px">
-        <div class="muted">Actions</div>
-        <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/retry" style="margin-top:10px">
-          <button type="submit">Retry pipeline</button>
-        </form>
-        <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/resync" style="margin-top:10px">
-          <button type="submit">Re-sync from Asana</button>
-        </form>
-        ${!task.github_issue_number ? `
-          <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/repo/change" style="margin-top:10px">
-            <div class="row" style="display:grid;grid-template-columns: 1fr 220px;gap:12px;align-items:end">
-              <div>
-                <label class="muted" style="display:block;margin-bottom:6px">Change repo (updates Asana Repo field)</label>
-                <select name="repo">
-                  ${repos
-                    .map((r) => {
-                      const v = `${r.owner}/${r.repo}`;
-                      return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`;
-                    })
-                    .join('')}
-                </select>
-              </div>
-              <div><button type="submit">Change Repo</button></div>
-            </div>
-          </form>
-        ` : ''}
-
-        ${task.github_issue_number ? `
-          <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/pr/force" style="margin-top:10px">
-            <div class="row" style="display:grid;grid-template-columns: 1fr 1fr 220px;gap:12px;align-items:end">
-              <div>
-                <label class="muted" style="display:block;margin-bottom:6px">Force link PR (number or URL)</label>
-                <input name="pr" placeholder="123 or https://github.com/.../pull/123" />
-              </div>
-              <div>
-                <label class="muted" style="display:block;margin-bottom:6px">Repo</label>
-                <select name="repo">
-                  <option value="">(use task/default)</option>
-                  ${repos
-                    .map((r) => {
-                      const v = `${r.owner}/${r.repo}`;
-                      return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`;
-                    })
-                    .join('')}
-                </select>
-              </div>
-              <div><button type="submit">Force Link PR</button></div>
-            </div>
-            <div class="muted" style="margin-top:8px">Use when PR body is missing strict "Fixes #${escapeHtml(String(task.github_issue_number))}".</div>
-          </form>
-        ` : ''}
-
-        <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/note" style="margin-top:10px">
-          <label class="muted" style="display:block;margin-bottom:6px">Add note (also posts to Asana)</label>
-          <textarea name="note" style="width:100%;box-sizing:border-box;min-height:90px;border-radius:12px;border:1px solid rgba(232,238,247,0.12);background:rgba(0,0,0,0.22);color:#e8eef7;padding:10px 12px;"></textarea>
-          <div style="margin-top:10px"><button type="submit">Post Note</button></div>
-        </form>
+  const headerCard = `
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:900;font-size:16px">${escapeHtml(task.title ?? '')}</div>
+          <div class="muted" style="margin-top:6px">Asana GID: <span class="mono">${escapeHtml(String(task.asana_gid))}</span></div>
+        </div>
+        <div>${statusBadge(String(task.status))}</div>
       </div>
-    ` : ''}
+      <div style="margin-top:10px">${links || '<span class="muted">No links yet</span>'}</div>
+    </div>
+  `;
 
-    ${!task.github_issue_number && task.status === 'NEEDS_REPO' ? `
-      <div style="margin-top:12px">
-        <div class="muted">Repo Required</div>
-        <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/issue/create" style="margin-top:10px">
-          <div class="row" style="display:grid;grid-template-columns: 1fr 220px;gap:12px;align-items:end">
-            <div>
-              <label class="muted" style="display:block;margin-bottom:6px">Select repo</label>
-              <select name="repo">
-                ${repos
-                  .map((r) => {
-                    const v = `${r.owner}/${r.repo}`;
-                    return `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`;
-                  })
-                  .join('')}
-              </select>
+  const actionsCard = opts.canEdit
+    ? `
+      <div class="card">
+        <div style="font-weight:900">${escapeHtml(t(lang, 'screens.task.actions'))}</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+          <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/retry" style="display:inline">
+            <button class="btn btn-secondary btn-md" type="submit">${escapeHtml(t(lang, 'screens.task.retry'))}</button>
+          </form>
+          <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/resync" style="display:inline">
+            <button class="btn btn-secondary btn-md" type="submit">${escapeHtml(t(lang, 'screens.task.resync'))}</button>
+          </form>
+          ${!task.github_issue_number && task.status === 'NEEDS_REPO' ? `<button class="btn btn-primary btn-md" type="button" data-open-modal="modal-create-issue">${escapeHtml(t(lang, 'screens.task.create_issue'))}</button>` : ''}
+          ${!task.github_issue_number ? `<button class="btn btn-secondary btn-md" type="button" data-open-modal="modal-change-repo">${escapeHtml(t(lang, 'screens.task.change_repo'))}</button>` : ''}
+          ${task.github_issue_number ? `<button class="btn btn-primary btn-md" type="button" data-open-modal="modal-link-pr">${escapeHtml(t(lang, 'screens.task.link_pr'))}</button>` : ''}
+        </div>
+
+        <div style="margin-top:16px">
+          <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/note">
+            <div class="form-group">
+              <label>${escapeHtml(t(lang, 'screens.task.add_note'))}</label>
+              <textarea name="note" placeholder="Your comment..."></textarea>
+              <div class="helper">Will be posted as comment in Asana</div>
             </div>
-            <div>
-              <button type="submit">Create Issue</button>
+            <div style="margin-top:12px">
+              <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'screens.task.post_note'))}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `
+    : `
+      <div class="card">
+        <div class="muted">Read-only: your role cannot perform actions.</div>
+      </div>
+    `;
+
+  const specCard = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.task.latest_spec'))}</div>
+      <div style="margin-top:12px"><pre style="margin:0">${escapeHtml(latestSpec ?? 'No TaskSpec yet')}</pre></div>
+      <div style="font-weight:900;margin-top:16px">${escapeHtml(t(lang, 'screens.task.spec_versions'))}</div>
+      <div style="display:grid;gap:10px;margin-top:12px">${versions || '<div class="muted">No versions yet</div>'}</div>
+    </div>
+  `;
+
+  const timelineCard = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.task.timeline'))}</div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>Timestamp</th><th>Source</th><th>Who</th><th>Type</th><th>Message</th></tr></thead>
+          <tbody>${eventRows || '<tr><td colspan="5" class="muted">No activity yet</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const modalCreateIssue = `
+    <div class="modal-backdrop" id="modal-create-issue" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">${escapeHtml(t(lang, 'screens.task.create_issue'))}</div>
+          <button class="modal-close" type="button" data-close-modal="modal-create-issue" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/issue/create">
+          <div class="modal-body">
+            <div class="form-group">
+              <label>Repository</label>
+              <select name="repo">${repoOptions}</select>
             </div>
           </div>
-          <div class="muted" style="margin-top:8px">Used for status NEEDS_REPO or manual recovery.</div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-create-issue">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
         </form>
       </div>
-    ` : ''}
+    </div>
+  `;
 
-    <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />
+  const modalChangeRepo = `
+    <div class="modal-backdrop" id="modal-change-repo" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">${escapeHtml(t(lang, 'screens.task.change_repo'))}</div>
+          <button class="modal-close" type="button" data-close-modal="modal-change-repo" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/repo/change">
+          <div class="modal-body">
+            <div class="form-group">
+              <label>Repository</label>
+              <select name="repo">${repoOptions}</select>
+              <div class="helper">Updates Asana Repo custom field (only before issue creation).</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-change-repo">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.save'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
 
-    <div class="muted">Title</div>
-    <div style="margin-top:6px">${escapeHtml(task.title ?? '')}</div>
+  const modalLinkPr = `
+    <div class="modal-backdrop" id="modal-link-pr" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">${escapeHtml(t(lang, 'screens.task.link_pr'))}</div>
+          <button class="modal-close" type="button" data-close-modal="modal-link-pr" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${escapeHtml(p.slug)}/t/${escapeHtml(String(task.id))}/pr/force">
+          <div class="modal-body">
+            <div class="row row-2">
+              <div class="form-group">
+                <label>PR Number or URL</label>
+                <input name="pr" placeholder="123 or https://github.com/.../pull/123" />
+              </div>
+              <div class="form-group">
+                <label>Repository (optional)</label>
+                <select name="repo"><option value="">(use task/default)</option>${repoOptions}</select>
+              </div>
+            </div>
+            <div class="helper">Use when PR body is missing strict "Fixes #${escapeHtml(String(task.github_issue_number))}".</div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-link-pr">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.save'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
 
-    <div class="muted" style="margin-top:16px">Latest TaskSpec</div>
-    <pre>${escapeHtml(latestSpec ?? 'No TaskSpec yet')}</pre>
+  const left = `<div class="grid" style="gap:16px">${actionsCard}${specCard}</div>`;
+  const right = `<div class="grid" style="gap:16px">${timelineCard}</div>`;
 
-    <div class="muted" style="margin-top:16px">TaskSpec Versions</div>
-    <div class="nav">${specList || '<span class="muted">No versions yet</span>'}</div>
-
-    <div class="muted" style="margin-top:16px">Timeline</div>
-     <table>
-       <thead><tr><th>Time</th><th>Source</th><th>Who</th><th>Type</th><th>Message</th></tr></thead>
-       <tbody>${eventList || '<tr><td colspan="5" class="muted">No events yet</td></tr>'}</tbody>
-     </table>
-
-    <div class="muted" style="margin-top:12px"><a href="/p/${p.slug}">← Back to dashboard</a></div>
-  </div>`;
-
-  return pageShell({ title: `Task ${task.id}`, body });
+  return pageShell({
+    title: `Task ${task.id}`,
+    lang,
+    body: `<div class="container">${top}${headerCard}<div class="grid grid-2">${left}${right}</div></div>${modalCreateIssue}${modalChangeRepo}${modalLinkPr}`,
+  });
 }

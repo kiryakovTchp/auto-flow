@@ -36,54 +36,84 @@ import {
 import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
+import { escapeHtml, pageShell, renderCodeBlock, renderLanguageToggle, renderTabs, renderTopbar } from '../services/html';
+import { getLangFromRequest, normalizeLang, setLangCookie, t, type UiLang } from '../services/i18n';
 import { tokenHash } from '../security/init-admin';
 import { authenticateUser, newSessionId, optionalSession, requireSession, SESSION_COOKIE } from '../security/sessions';
 
 export function authUiRouter(): Router {
   const r = Router();
 
+  r.get('/ui/lang', (req: Request, res: Response) => {
+    const lang = normalizeLang((req.query as any)?.lang);
+    setLangCookie(res, lang);
+    res.redirect(String(req.get('referer') ?? '/'));
+  });
+
+  r.post('/ui/lang', (req: Request, res: Response) => {
+    const lang = normalizeLang((req.body as any)?.lang);
+    setLangCookie(res, lang);
+    if (String(req.get('accept') ?? '').includes('application/json')) {
+      res.status(200).json({ ok: true, lang });
+      return;
+    }
+    res.redirect(String(req.get('referer') ?? '/'));
+  });
+
   r.get('/docs', optionalSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const envBase = String(process.env.PUBLIC_BASE_URL ?? '').trim();
     const base = envBase || `http://localhost:${escapeHtml(String(process.env.PORT ?? '3000'))}`;
     const username = (req as any)?.auth?.username ? String((req as any).auth.username) : null;
 
     const body = `
       <div class="card">
-        <h1>Auto-Flow Docs</h1>
-        <div class="muted">${username ? `Logged in as ${escapeHtml(username)}` : 'Not logged in'}</div>
+        <div style="font-weight:900;font-size:16px">Auto-Flow Docs</div>
+        <div class="muted" style="margin-top:6px">${username ? `Logged in as ${escapeHtml(username)}` : 'Not logged in'}</div>
 
-        <div class="muted" style="margin-top:12px">Quick links</div>
-        <div class="nav">
-          <div class="pill"><a href="/health">/health</a></div>
-          <div class="pill"><a href="/metrics">/metrics</a></div>
-          <div class="pill"><a href="/api/v1/openapi.json">/api/v1/openapi.json</a></div>
-          <div class="pill"><a href="/app">/app</a></div>
+        <div style="margin-top:16px;font-weight:900">Quick links</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+          <a class="btn btn-secondary btn-sm" href="/health">/health</a>
+          <a class="btn btn-secondary btn-sm" href="/metrics">/metrics</a>
+          <a class="btn btn-secondary btn-sm" href="/api/v1/openapi.json">/api/v1/openapi.json</a>
+          <a class="btn btn-secondary btn-sm" href="/app">/app</a>
         </div>
 
-        <div class="muted" style="margin-top:12px">Local dev</div>
-        <pre style="white-space:pre-wrap">docker compose up -d
-npm run dev</pre>
+        <div style="margin-top:20px;font-weight:900">Local dev</div>
+        <div style="margin-top:12px">${renderCodeBlock('docker compose up -d\nnpm run dev', { copyLabel: t(lang, 'common.copy') })}</div>
 
-        <div class="muted" style="margin-top:12px">Init admin (one-time)</div>
-        <pre style="white-space:pre-wrap">${escapeHtml(base)}/init?token=&lt;INIT_ADMIN_TOKEN&gt;</pre>
+        <div style="margin-top:20px;font-weight:900">Init admin (one-time)</div>
+        <div style="margin-top:12px">${renderCodeBlock(`${base}/init?token=<INIT_ADMIN_TOKEN>`, { copyLabel: t(lang, 'common.copy') })}</div>
 
-        <div class="muted" style="margin-top:12px">API token (project-scoped)</div>
-        <div class="muted">Create a token in <code>/p/:slug/api</code>, then call:</div>
-        <pre style="white-space:pre-wrap">curl -H "Authorization: Bearer &lt;PROJECT_API_TOKEN&gt;" ${escapeHtml(base)}/api/v1/projects/&lt;slug&gt;/summary</pre>
+        <div style="margin-top:20px;font-weight:900">API token (project-scoped)</div>
+        <div class="muted" style="margin-top:6px">Create a token in <span class="mono">/p/:slug/api</span>, then call:</div>
+        <div style="margin-top:12px">${renderCodeBlock(`curl -H "Authorization: Bearer <PROJECT_API_TOKEN>" ${base}/api/v1/projects/<slug>/summary`, { copyLabel: t(lang, 'common.copy') })}</div>
 
-        <div class="muted" style="margin-top:12px">Metrics</div>
-        <div class="muted">If <code>METRICS_TOKEN</code> is set:</div>
-        <pre style="white-space:pre-wrap">curl -H "Authorization: Bearer &lt;METRICS_TOKEN&gt;" ${escapeHtml(base)}/metrics</pre>
+        <div style="margin-top:20px;font-weight:900">Metrics</div>
+        <div class="muted" style="margin-top:6px">If <span class="mono">METRICS_TOKEN</span> is set:</div>
+        <div style="margin-top:12px">${renderCodeBlock(`curl -H "Authorization: Bearer <METRICS_TOKEN>" ${base}/metrics`, { copyLabel: t(lang, 'common.copy') })}</div>
 
-        <div class="muted" style="margin-top:12px">Deploy</div>
-        <pre style="white-space:pre-wrap">docker compose -f deploy/docker-compose.yml --env-file deploy/staging.env up -d --build</pre>
-        <div class="muted">See <code>docs/deploy.md</code> and <code>docs/ci-cd.md</code>.</div>
-
-        <div style="margin-top:12px"><a href="/app">← Back</a></div>
+        <div style="margin-top:20px;font-weight:900">Deploy</div>
+        <div style="margin-top:12px">${renderCodeBlock('docker compose -f deploy/docker-compose.yml --env-file deploy/staging.env up -d --build', { copyLabel: t(lang, 'common.copy') })}</div>
+        <div class="muted" style="margin-top:10px">See <span class="mono">docs/deploy.md</span> and <span class="mono">docs/ci-cd.md</span>.</div>
       </div>
     `;
 
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(layout('Docs', body));
+    const top = renderTopbar({
+      title: 'Auto-Flow Docs',
+      subtitle: username ? `Logged in as ${username}` : 'Not logged in',
+      rightHtml: renderLanguageToggle(lang) + `<a class="btn btn-secondary btn-sm" href="/app">${escapeHtml(t(lang, 'common.back'))}</a>`,
+    });
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(
+        pageShell({
+          title: 'Docs',
+          lang,
+          body: `<div class="container">${top}${body}</div>`,
+        }),
+      );
   });
 
   r.get('/login', optionalSession, async (req: Request, res: Response) => {
@@ -92,16 +122,21 @@ npm run dev</pre>
       return;
     }
 
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(loginPage());
+    const lang = getLangFromRequest(req);
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(loginPage(lang));
   });
 
   r.post('/login', async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const username = String((req.body as any)?.username ?? '');
     const password = String((req.body as any)?.password ?? '');
 
     const auth = await authenticateUser(username, password);
     if (!auth) {
-      res.status(401).setHeader('Content-Type', 'text/html; charset=utf-8').send(loginPage('Invalid credentials'));
+      res
+        .status(401)
+        .setHeader('Content-Type', 'text/html; charset=utf-8')
+        .send(loginPage(lang, t(lang, 'screens.login.error_invalid')));
       return;
     }
 
@@ -131,6 +166,7 @@ npm run dev</pre>
 
   // Initial admin creation. Works only if there are no users yet.
   r.get('/init', optionalSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     if ((req as any).auth) {
       res.redirect('/app');
       return;
@@ -141,26 +177,27 @@ npm run dev</pre>
     const token = String(req.query.token ?? '');
 
     if (!initToken) {
-      res.status(500).send('INIT_ADMIN_TOKEN is not set');
+      res.status(500).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage(lang, 'INIT_ADMIN_TOKEN is not set'));
       return;
     }
 
     if (!token || token !== initToken) {
-      res.status(403).send('Invalid init token');
+      res.status(403).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage(lang, 'Invalid init token'));
       return;
     }
 
     // If admin exists, block.
     const existing = await getUserByUsername('admin');
     if (existing) {
-      res.status(403).send('Admin already exists');
+      res.status(403).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage(lang, 'Admin user already created'));
       return;
     }
 
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage());
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage(lang));
   });
 
   r.post('/init', async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const env = getEnv();
     const initToken = env.INIT_ADMIN_TOKEN;
     const token = String((req.body as any)?.token ?? '');
@@ -168,18 +205,18 @@ npm run dev</pre>
     const password = String((req.body as any)?.password ?? '');
 
     if (!initToken || token !== initToken) {
-      res.status(403).send('Invalid init token');
+      res.status(403).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage(lang, 'Invalid init token'));
       return;
     }
 
     if (!password || password.length < 8) {
-      res.status(400).send('Password too short');
+      res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage(lang, 'Password too short'));
       return;
     }
 
     const existingAny = await getUserByUsername(username);
     if (existingAny) {
-      res.status(400).send('User already exists');
+      res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(initAdminPage(lang, 'User already exists'));
       return;
     }
 
@@ -206,21 +243,23 @@ npm run dev</pre>
   });
 
   r.get('/invite/:token', optionalSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const token = String(req.params.token);
     const inv = await getInviteByTokenHash(tokenHash(token));
     if (!inv) {
-      res.status(404).send('Invite not found or expired');
+      res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8').send(authShell(lang, 'Invite', inlineAlert('error', 'Invite not found or expired')));
       return;
     }
 
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(invitePage(token));
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(invitePage(lang, token));
   });
 
   r.post('/invite/:token', async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const token = String(req.params.token);
     const inv = await getInviteByTokenHash(tokenHash(token));
     if (!inv) {
-      res.status(404).send('Invite not found or expired');
+      res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8').send(authShell(lang, 'Invite', inlineAlert('error', 'Invite not found or expired')));
       return;
     }
 
@@ -228,17 +267,17 @@ npm run dev</pre>
     const password = String((req.body as any)?.password ?? '');
 
     if (!username || username.length < 3) {
-      res.status(400).send('Username too short');
+      res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(invitePage(lang, token, 'Username too short'));
       return;
     }
     if (!password || password.length < 8) {
-      res.status(400).send('Password too short');
+      res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(invitePage(lang, token, 'Password too short'));
       return;
     }
 
     const exists = await getUserByUsername(username);
     if (exists) {
-      res.status(400).send('User already exists');
+      res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(invitePage(lang, token, 'Username already exists'));
       return;
     }
 
@@ -268,8 +307,12 @@ npm run dev</pre>
 
   // App pages
   r.get('/app', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const projects = await listProjectsForUser((req as any).auth.userId);
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(appPage((req as any).auth.username, projects));
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(appPage(lang, (req as any).auth.username, projects));
   });
 
   r.post('/app/projects', requireSession, async (req: Request, res: Response) => {
@@ -286,20 +329,23 @@ npm run dev</pre>
   });
 
   r.post('/app/invites', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const token = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await createInvite({ tokenHash: tokenHash(token), expiresAt, createdBy: (req as any).auth.userId });
 
     const base = String(req.protocol + '://' + req.get('host'));
     const url = `${base}/invite/${encodeURIComponent(token)}`;
-    res
-      .status(200)
-      .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(layout('Invite created', `<div class="card"><h1>Invite</h1><div class="muted">Valid for 7 days</div><pre>${escapeHtml(url)}</pre><div style="margin-top:12px"><a href="/app">← Back</a></div></div>`));
+    if (String(req.get('accept') ?? '').includes('application/json')) {
+      res.status(200).json({ url, expires_at: expiresAt.toISOString() });
+      return;
+    }
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(inviteCreatedPage(lang, url));
   });
 
 
   r.get('/p/:slug/settings', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -334,7 +380,7 @@ npm run dev</pre>
     res
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(projectSettingsPage(p, asanaProjects, repos, { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret }, asanaFieldCfg, statusMap, repoMap, links, contacts));
+      .send(projectSettingsPage(p, asanaProjects, repos, { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret }, asanaFieldCfg, statusMap, repoMap, links, contacts, lang));
   });
 
   r.post('/p/:slug/settings/links/add', requireSession, async (req: Request, res: Response) => {
@@ -686,6 +732,7 @@ npm run dev</pre>
 
 
   r.get('/p/:slug/api', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -700,10 +747,14 @@ npm run dev</pre>
     }
 
     const tokens = await listProjectApiTokens(p.id);
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectApiPage(p, tokens, null, membership.role === 'admin'));
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(projectApiPage(p, tokens, null, membership.role === 'admin', lang));
   });
 
   r.post('/p/:slug/api/tokens/create', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -727,7 +778,7 @@ npm run dev</pre>
     });
 
     const tokens = await listProjectApiTokens(p.id);
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectApiPage(p, tokens, token, true));
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectApiPage(p, tokens, token, true, lang));
   });
 
   r.post('/p/:slug/api/tokens/revoke', requireSession, async (req: Request, res: Response) => {
@@ -753,6 +804,7 @@ npm run dev</pre>
   });
 
   r.get('/p/:slug/knowledge', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -767,7 +819,7 @@ npm run dev</pre>
     }
 
     const md = await getProjectKnowledge(p.id);
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectKnowledgePage(p, md));
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(projectKnowledgePage(p, md, lang));
   });
 
   r.post('/p/:slug/knowledge', requireSession, async (req: Request, res: Response) => {
@@ -793,52 +845,287 @@ npm run dev</pre>
 }
 
 function layout(title: string, body: string): string {
-  return `<!doctype html>\n<html>\n<head>\n<meta charset="utf-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>${title}</title>\n<style>\n  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b0f14;color:#e8eef7;}\n  a{color:#7aa2ff;text-decoration:none;}\n  .wrap{max-width:860px;margin:0 auto;padding:24px 16px;}\n  .card{border:1px solid rgba(232,238,247,0.12);background:rgba(255,255,255,0.06);border-radius:14px;padding:16px;}\n  .row{display:grid;grid-template-columns:1fr;gap:12px;}\n  @media(min-width:640px){.row{grid-template-columns:1fr 1fr;}}\n  label{font-size:12px;color:rgba(232,238,247,0.72);display:block;margin-bottom:6px;}\n  input,textarea{width:100%;box-sizing:border-box;border-radius:12px;border:1px solid rgba(232,238,247,0.12);background:rgba(0,0,0,0.22);color:#e8eef7;padding:10px 12px;}\n  button{border:1px solid rgba(232,238,247,0.12);background:rgba(255,255,255,0.08);color:#e8eef7;padding:10px 12px;border-radius:12px;cursor:pointer;}\n  h1{font-size:18px;margin:0 0 10px;}\n  .muted{color:rgba(232,238,247,0.72);font-size:13px;}\n  .nav{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;}\n  .pill{border:1px solid rgba(232,238,247,0.12);padding:6px 10px;border-radius:999px;background:rgba(0,0,0,0.22);}\n</style>\n</head>\n<body>\n<div class="wrap">\n${body}\n</div>\n</body>\n</html>`;
+  // Backwards-compat shim (legacy callers inside this file).
+  return pageShell({ title, body: `<div class="container">${body}</div>` });
 }
 
-function loginPage(error?: string): string {
-  return layout(
-    'Login',
-    `<div class="card">\n      <h1>Login</h1>\n      ${error ? `<div class="muted" style="color:#ff6b6b">${error}</div>` : `<div class="muted">Use your admin credentials.</div>`}\n      <form method="post" action="/login">\n        <div class="row">\n          <div>\n            <label>Username</label>\n            <input name="username" />\n          </div>\n          <div>\n            <label>Password</label>\n            <input name="password" type="password" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Login</button>\n        </div>\n      </form>\n      <div class="muted" style="margin-top:12px">If no users exist, initialize admin via <code>/init?token=INIT_ADMIN_TOKEN</code>.</div>\n    </div>`,
+function authShell(lang: UiLang, title: string, cardHtml: string): string {
+  return pageShell({
+    title,
+    lang,
+    variant: 'auth',
+    body: `
+      <div class="auth-top">${renderLanguageToggle(lang)}</div>
+      <div class="auth-wrap">
+        <div class="card auth-card">${cardHtml}</div>
+      </div>
+    `,
+  });
+}
+
+function inlineAlert(type: 'success' | 'error' | 'warning' | 'info', msg: string): string {
+  const title = type === 'error' ? 'Error' : type === 'success' ? 'Success' : type === 'warning' ? 'Warning' : 'Info';
+  return `
+    <div class="toast toast-${type}" style="position:relative;box-shadow:none;margin:0 0 14px">
+      <div class="toast-title">${escapeHtml(title)}</div>
+      <div class="toast-msg">${escapeHtml(msg)}</div>
+    </div>
+  `;
+}
+
+function loginPage(lang: UiLang, error?: string): string {
+  const err = error ? inlineAlert('error', error) : '';
+
+  return authShell(
+    lang,
+    t(lang, 'screens.login.title'),
+    `
+      <div class="auth-logo">Auto-Flow</div>
+      <div class="muted" style="margin-bottom:16px">${escapeHtml(t(lang, 'screens.login.subtitle'))}</div>
+      ${err}
+      <form method="post" action="/login">
+        <div class="row row-2">
+          <div class="form-group">
+            <label>${escapeHtml(t(lang, 'screens.login.username'))}</label>
+            <input name="username" placeholder="user@example.com" />
+            <div class="helper">${escapeHtml(t(lang, 'screens.login.username_help'))}</div>
+          </div>
+          <div class="form-group">
+            <label>${escapeHtml(t(lang, 'screens.login.password'))}</label>
+            <input name="password" type="password" placeholder="••••••••" />
+            <div class="helper">${escapeHtml(t(lang, 'screens.login.password_help'))}</div>
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn btn-primary btn-md" style="width:100%" type="submit">${escapeHtml(t(lang, 'screens.login.submit'))}</button>
+        </div>
+      </form>
+      <div class="helper" style="margin-top:16px">/init?token=INIT_ADMIN_TOKEN</div>
+    `,
   );
 }
 
-function initAdminPage(): string {
-  return layout(
-    'Init Admin',
-    `<div class="card">\n      <h1>Init Admin</h1>\n      <div class="muted">Creates the first admin user (one-time flow).</div>\n      <form method="post" action="/init">\n        <div class="row">\n          <div>\n            <label>Init Token</label>\n            <input name="token" />\n          </div>\n          <div>\n            <label>Username</label>\n            <input name="username" value="admin" />\n          </div>\n          <div>\n            <label>Password</label>\n            <input name="password" type="password" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create Admin</button>\n        </div>\n      </form>\n    </div>`,
+function initAdminPage(lang: UiLang, error?: string): string {
+  const err = error ? inlineAlert('error', error) : '';
+
+  return authShell(
+    lang,
+    t(lang, 'screens.init.title'),
+    `
+      <div class="auth-logo">Auto-Flow</div>
+      <div class="muted" style="margin-bottom:16px">${escapeHtml(t(lang, 'screens.init.subtitle'))}</div>
+      ${err}
+      <form method="post" action="/init">
+        <div class="row">
+          <div class="form-group">
+            <label>${escapeHtml(t(lang, 'screens.init.token'))}</label>
+            <input name="token" type="password" placeholder="paste token" />
+            <div class="helper">${escapeHtml(t(lang, 'screens.init.token_help'))}</div>
+          </div>
+          <div class="row row-2">
+            <div class="form-group">
+              <label>${escapeHtml(t(lang, 'screens.init.username'))}</label>
+              <input name="username" value="admin" placeholder="admin" />
+              <div class="helper">${escapeHtml(t(lang, 'screens.init.username_help'))}</div>
+            </div>
+            <div class="form-group">
+              <label>${escapeHtml(t(lang, 'screens.init.password'))}</label>
+              <input name="password" type="password" placeholder="••••••••" />
+              <div class="helper">${escapeHtml(t(lang, 'screens.init.password_help'))}</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn btn-primary btn-md" style="width:100%" type="submit">${escapeHtml(t(lang, 'screens.init.submit'))}</button>
+        </div>
+      </form>
+    `,
   );
 }
 
-function invitePage(token: string): string {
-  return layout(
-    'Accept Invite',
-    `<div class="card">\n      <h1>Accept Invite</h1>\n      <div class="muted">Set your username and password.</div>\n      <form method="post" action="/invite/${encodeURIComponent(token)}">\n        <div class="row">\n          <div>\n            <label>Username</label>\n            <input name="username" />\n          </div>\n          <div>\n            <label>Password</label>\n            <input name="password" type="password" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create Account</button>\n        </div>\n      </form>\n    </div>`,
+function invitePage(lang: UiLang, token: string, error?: string): string {
+  const err = error ? inlineAlert('error', error) : '';
+
+  return authShell(
+    lang,
+    t(lang, 'screens.invite.title'),
+    `
+      <div class="auth-logo">Auto-Flow</div>
+      <div class="muted" style="margin-bottom:16px">${escapeHtml(t(lang, 'screens.invite.subtitle'))}</div>
+      ${err}
+      <form method="post" action="/invite/${encodeURIComponent(token)}">
+        <div class="row row-2">
+          <div class="form-group">
+            <label>${escapeHtml(t(lang, 'screens.invite.username'))}</label>
+            <input name="username" placeholder="john_doe" />
+            <div class="helper">${escapeHtml(t(lang, 'screens.invite.username_help'))}</div>
+          </div>
+          <div class="form-group">
+            <label>${escapeHtml(t(lang, 'screens.invite.password'))}</label>
+            <input name="password" type="password" placeholder="••••••••" />
+            <div class="helper">${escapeHtml(t(lang, 'screens.invite.password_help'))}</div>
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn btn-primary btn-md" style="width:100%" type="submit">${escapeHtml(t(lang, 'screens.invite.submit'))}</button>
+        </div>
+      </form>
+    `,
   );
 }
 
-function appPage(username: string, projects: Array<{ slug: string; name: string }>): string {
-  const list = projects
-    .map((p) => `<div class="pill"><a href="/p/${encodeURIComponent(p.slug)}">${p.name}</a></div>`)
+function appPage(lang: UiLang, username: string, projects: Array<{ slug: string; name: string }>): string {
+  const projectCards = projects
+    .map((p) => {
+      return `
+        <a class="card" href="/p/${encodeURIComponent(p.slug)}" style="display:block">
+          <div style="font-weight:800;font-size:16px">${escapeHtml(p.name)}</div>
+          <div class="muted" style="margin-top:6px">${escapeHtml(p.slug)}</div>
+        </a>
+      `;
+    })
     .join('');
 
-  return layout(
-    'App',
-    `<div class="card">\n      <h1>Projects</h1>\n      <div class="muted">Logged in as ${username}</div>\n      <form method="post" action="/logout" style="margin-top:10px">\n        <button type="submit">Logout</button>\n      </form>\n      <div class="nav" style="margin-top:14px">${list || '<span class="muted">No projects yet</span>'}</div>\n      <div class="muted" style="margin-top:12px"><a href="/docs">Open Docs</a></div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Invite</h1>\n      <div class="muted">Creates a 7-day invite link.</div>\n      <form method="post" action="/app/invites" style="margin-top:12px">\n        <button type="submit">Create Invite Link</button>\n      </form>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Project</h1>\n      <form method="post" action="/app/projects">\n        <div class="row">\n          <div>\n            <label>Slug</label>\n            <input name="slug" placeholder="my-tool" />\n          </div>\n          <div>\n            <label>Name</label>\n            <input name="name" placeholder="My Tool" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create</button>\n        </div>\n      </form>\n    </div>`,
-  );
+  const top = renderTopbar({
+    title: t(lang, 'screens.projects.title'),
+    subtitle: `Logged in as ${username}`,
+    rightHtml:
+      `
+        <button class="btn btn-secondary btn-sm" type="button" data-action="create-invite">${escapeHtml(t(lang, 'screens.projects.create_invite'))}</button>
+        <button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-create-project">${escapeHtml(t(lang, 'screens.projects.create_project'))}</button>
+        <form method="post" action="/logout" style="display:inline">
+          <button class="btn btn-ghost btn-sm" type="submit">${escapeHtml(t(lang, 'common.logout'))}</button>
+        </form>
+        ${renderLanguageToggle(lang)}
+      `,
+  });
+
+  const modalCreateProject = `
+    <div class="modal-backdrop" id="modal-create-project" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">${escapeHtml(t(lang, 'screens.projects.create_project_modal_title'))}</div>
+          <button class="modal-close" type="button" data-close-modal="modal-create-project" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/app/projects">
+          <div class="modal-body">
+            <div class="row row-2">
+              <div class="form-group">
+                <label>${escapeHtml(t(lang, 'screens.projects.project_slug'))}</label>
+                <input name="slug" placeholder="my-awesome-project" />
+                <div class="helper">/^[a-z0-9-]+$/ (max 50)</div>
+              </div>
+              <div class="form-group">
+                <label>${escapeHtml(t(lang, 'screens.projects.project_name'))}</label>
+                <input name="name" placeholder="My Awesome Project" />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-create-project">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const modalInvite = `
+    <div class="modal-backdrop" id="modal-invite" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">${escapeHtml(t(lang, 'screens.projects.create_invite_modal_title'))}</div>
+          <button class="modal-close" type="button" data-close-modal="modal-invite" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom:12px">${escapeHtml(t(lang, 'screens.projects.invite_helper'))}</div>
+          <div class="codeblock">
+            <button type="button" class="codeblock-copy" data-copy>${escapeHtml(t(lang, 'common.copy'))}</button>
+            <pre><code id="invite-url">...</code></pre>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-invite">${escapeHtml(t(lang, 'common.close'))}</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return pageShell({
+    title: 'Projects',
+    lang,
+    body: `
+      <div class="container">
+        ${top}
+        <div class="muted" style="margin:6px 0 16px"><a href="/docs">${escapeHtml(t(lang, 'screens.projects.open_docs'))}</a></div>
+        <div class="grid grid-3">${projectCards || `<div class="card"><div class="muted">No projects yet</div></div>`}</div>
+      </div>
+      ${modalCreateProject}
+      ${modalInvite}
+    `,
+    scriptsHtml: `
+      <script>
+        (function(){
+          async function createInvite(){
+            try{
+              var res = await fetch('/app/invites', { method: 'POST', headers: { 'Accept': 'application/json' } });
+              var data = await res.json();
+              if(!res.ok) throw new Error((data && data.error) ? data.error : 'invite error');
+              var code = document.getElementById('invite-url');
+              if(code) code.textContent = String(data.url || '');
+              window.uiOpenModal('modal-invite');
+            }catch(err){
+              window.toast('error', String(err && err.message ? err.message : err));
+            }
+          }
+          document.addEventListener('click', function(e){
+            var btn = e.target && e.target.closest ? e.target.closest('[data-action="create-invite"]') : null;
+            if(!btn) return;
+            e.preventDefault();
+            createInvite();
+          });
+        })();
+      </script>
+    `,
+  });
 }
 
-function projectNav(p: { slug: string }, active: string): string {
+function inviteCreatedPage(lang: UiLang, url: string): string {
+  const top = renderTopbar({
+    title: t(lang, 'screens.projects.create_invite_modal_title'),
+    rightHtml: `<a class="btn btn-secondary btn-sm" href="/app">${escapeHtml(t(lang, 'common.back'))}</a>${renderLanguageToggle(lang)}`,
+  });
+  return pageShell({
+    title: 'Invite',
+    lang,
+    body: `<div class="container">${top}<div class="card">${renderCodeBlock(url, { copyLabel: t(lang, 'common.copy') })}</div></div>`,
+  });
+}
+
+function projectTabs(p: { slug: string }, active: string, lang: UiLang): string {
   const tabs = [
-    ['Home', `/p/${p.slug}`],
-    ['Settings', `/p/${p.slug}/settings`],
-    ['Webhooks', `/p/${p.slug}/webhooks`],
-    ['API', `/p/${p.slug}/api`],
-    ['Knowledge', `/p/${p.slug}/knowledge`],
+    { key: 'home', label: 'Home', href: `/p/${p.slug}` },
+    { key: 'settings', label: t(lang, 'screens.settings.title'), href: `/p/${p.slug}/settings` },
+    { key: 'webhooks', label: t(lang, 'screens.webhooks.title'), href: `/p/${p.slug}/webhooks` },
+    { key: 'api', label: t(lang, 'screens.api.title'), href: `/p/${p.slug}/api` },
+    { key: 'knowledge', label: t(lang, 'screens.knowledge.title'), href: `/p/${p.slug}/knowledge` },
   ];
-  return `<div class="nav">${tabs
-    .map(([label, href]) => `<div class="pill" style="${label.toLowerCase() === active ? 'border-color:#4fd1c5' : ''}"><a href="${href}">${label}</a></div>`)
-    .join('')}</div>`;
+  return renderTabs(tabs, active);
+}
+
+function projectShell(lang: UiLang, p: { slug: string; name: string }, active: string, subtitle: string, inner: string): string {
+  const top = renderTopbar({
+    title: p.name,
+    subtitle,
+    tabsHtml: projectTabs(p, active, lang),
+    rightHtml: `<a class="btn btn-secondary btn-sm" href="/app">${escapeHtml(t(lang, 'common.back'))}</a>${renderLanguageToggle(lang)}`,
+  });
+
+  return pageShell({
+    title: `${p.name} - ${active}`,
+    lang,
+    body: `<div class="container">${top}${inner}</div>`,
+  });
 }
 
 
@@ -853,289 +1140,485 @@ function projectSettingsPage(
   repoMap: Array<{ option_name: string; owner: string; repo: string }>,
   links: Array<{ id: string; kind: string; url: string; title: string | null; tags: string | null }>,
   contacts: Array<{ id: string; role: string; name: string | null; handle: string | null }>,
+  lang: UiLang,
 ): string {
-  const secretsBlock = `
-    <div class="muted">Secrets (stored encrypted):</div>
-    <div class="nav">
-      <div class="pill">Asana PAT: ${secrets.hasAsanaPat ? 'set' : 'missing'}</div>
-      <div class="pill">GitHub Token: ${secrets.hasGithubToken ? 'set' : 'missing'}</div>
-      <div class="pill">GitHub Webhook Secret: ${secrets.hasGithubWebhookSecret ? 'set' : 'missing'}</div>
+  const secretBadges = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+      <span class="badge ${secrets.hasAsanaPat ? 'badge-success' : 'badge-gray'}">Asana PAT: ${secrets.hasAsanaPat ? 'set' : 'missing'}</span>
+      <span class="badge ${secrets.hasGithubToken ? 'badge-success' : 'badge-gray'}">GitHub Token: ${secrets.hasGithubToken ? 'set' : 'missing'}</span>
+      <span class="badge ${secrets.hasGithubWebhookSecret ? 'badge-success' : 'badge-gray'}">GH Webhook Secret: ${secrets.hasGithubWebhookSecret ? 'set' : 'missing'}</span>
     </div>
-
-    <form method="post" action="/p/${p.slug}/settings/secrets">
-      <div class="row" style="margin-top:12px">
-        <div>
-          <label>Asana PAT</label>
-          <input name="asana_pat" type="password" placeholder="paste token" />
-        </div>
-        <div>
-          <label>GitHub Token</label>
-          <input name="github_token" type="password" placeholder="paste token" />
-        </div>
-        <div>
-          <label>GitHub Webhook Secret</label>
-          <input name="github_webhook_secret" type="password" placeholder="paste secret" />
-        </div>
-        <div>
-          <label>OpenCode Workdir (optional)</label>
-          <input name="opencode_workdir" placeholder="/Users/.../repo" />
-        </div>
-      </div>
-      <div style="margin-top:12px">
-        <button type="submit">Save Secrets</button>
-      </div>
-      <div class="muted" style="margin-top:8px">Leave fields blank to keep existing values.</div>
-    </form>
-
-    <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />
-
-    <div class="muted">Asana custom fields (workspace-level):</div>
-    <form method="post" action="/p/${p.slug}/settings/asana-fields" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Workspace GID (optional)</label>
-          <input name="workspace_gid" value="${escapeHtml(asanaFieldCfg?.workspace_gid ?? '')}" placeholder="123..." />
-        </div>
-        <div>
-          <label>AutoTask field GID (checkbox)</label>
-          <input name="auto_field_gid" value="${escapeHtml(asanaFieldCfg?.auto_field_gid ?? '')}" placeholder="field gid" />
-        </div>
-        <div>
-          <label>Repo field GID (enum)</label>
-          <input name="repo_field_gid" value="${escapeHtml(asanaFieldCfg?.repo_field_gid ?? '')}" placeholder="field gid" />
-        </div>
-        <div>
-          <label>Status field GID (enum)</label>
-          <input name="status_field_gid" value="${escapeHtml(asanaFieldCfg?.status_field_gid ?? '')}" placeholder="field gid" />
-        </div>
-      </div>
-      <div style="margin-top:12px"><button type="submit">Save Asana Field Config</button></div>
-      <div class="muted" style="margin-top:8px">Paste GIDs manually.</div>
-    </form>
-
-    <div class="muted" style="margin-top:16px">Asana status mapping (option name → ACTIVE/BLOCKED/CANCELLED):</div>
-    <div class="nav">${statusMap.map((m) => `<div class=\"pill\">${escapeHtml(m.option_name)} → ${escapeHtml(m.mapped_status)}</div>`).join('') || '<span class="muted">No mappings yet</span>'}</div>
-    <form method="post" action="/p/${p.slug}/settings/asana-status-map" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Option name</label>
-          <input name="option_name" placeholder="Cancelled" />
-        </div>
-        <div>
-          <label>Mapped status</label>
-          <input name="mapped_status" placeholder="CANCELLED" />
-        </div>
-      </div>
-      <div style="margin-top:12px"><button type="submit">Upsert Mapping</button></div>
-    </form>
-    <form method="post" action="/p/${p.slug}/settings/asana-status-map/delete" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Delete mapping by option name</label>
-          <input name="option_name" placeholder="Cancelled" />
-        </div>
-      </div>
-      <div style="margin-top:12px"><button type="submit">Delete Mapping</button></div>
-    </form>
-
-    <div class="muted" style="margin-top:16px">Repo mapping override (Asana Repo option name → GitHub owner/repo):</div>
-    <div class="nav">${repoMap.map((m) => `<div class=\"pill\">${escapeHtml(m.option_name)} → ${escapeHtml(m.owner)}/${escapeHtml(m.repo)}</div>`).join('') || '<span class="muted">No repo overrides</span>'}</div>
-    <div class="muted">Use when option name is not exactly "owner/repo".</div>
-    <form method="post" action="/p/${p.slug}/settings/repo-map" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Option name</label>
-          <input name="option_name" placeholder="Backend Repo" />
-        </div>
-        <div>
-          <label>Owner</label>
-          <input name="owner" placeholder="kiryakovTchp" />
-        </div>
-        <div>
-          <label>Repo</label>
-          <input name="repo" placeholder="auto-flow" />
-        </div>
-      </div>
-      <div style="margin-top:12px"><button type="submit">Upsert Repo Mapping</button></div>
-    </form>
-    <form method="post" action="/p/${p.slug}/settings/repo-map/delete" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Delete mapping by option name</label>
-          <input name="option_name" placeholder="Backend Repo" />
-        </div>
-      </div>
-      <div style="margin-top:12px"><button type="submit">Delete Repo Mapping</button></div>
-    </form>
   `;
 
-  const asanaList = `
-    <div class="muted">Asana projects:</div>
-    <div class="nav">${asanaProjects.map((g) => `<div class=\"pill\">${g}</div>`).join('') || '<span class="muted">None</span>'}</div>
-
-    <form method="post" action="/p/${p.slug}/settings/asana/add">
-      <div class="row" style="margin-top:12px">
-        <div>
-          <label>Add Asana Project GID</label>
-          <input name="asana_project_gid" placeholder="121286..." />
+  const secretsCard = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.secrets'))}</div>
+      <div class="muted" style="margin-top:6px">Encrypted in DB. Leave blank to keep existing values.</div>
+      ${secretBadges}
+      <form method="post" action="/p/${p.slug}/settings/secrets" style="margin-top:16px">
+        <div class="row row-2">
+          <div class="form-group">
+            <label>Asana Personal Access Token</label>
+            <input name="asana_pat" type="password" placeholder="1/..." />
+          </div>
+          <div class="form-group">
+            <label>GitHub Personal Access Token</label>
+            <input name="github_token" type="password" placeholder="ghp_..." />
+          </div>
+          <div class="form-group">
+            <label>GitHub Webhook Secret</label>
+            <input name="github_webhook_secret" type="password" placeholder="••••••••" />
+          </div>
+          <div class="form-group">
+            <label>OpenCode Workdir</label>
+            <input name="opencode_workdir" placeholder="/Users/.../repo" />
+          </div>
         </div>
-      </div>
-      <div style="margin-top:12px">
-        <button type="submit">Add</button>
-      </div>
-    </form>
-
-    <form method="post" action="/p/${p.slug}/settings/asana/remove" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Remove Asana Project GID</label>
-          <input name="asana_project_gid" placeholder="121286..." />
+        <div style="margin-top:16px">
+          <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.save'))}</button>
         </div>
-      </div>
-      <div style="margin-top:12px">
-        <button type="submit">Remove</button>
-      </div>
-    </form>
+      </form>
+    </div>
   `;
 
-  const repoList = `
-    <div class="muted">GitHub repos:</div>
-    <div class="nav">${repos
-      .map((r) => `<div class=\"pill\">${r.owner}/${r.repo}${r.is_default ? ' (default)' : ''}</div>`)
-      .join('') || '<span class="muted">None</span>'}</div>
-
-    <form method="post" action="/p/${p.slug}/settings/repos/add">
-      <div class="row" style="margin-top:12px">
-        <div>
-          <label>Owner</label>
-          <input name="owner" placeholder="kiryakovTchp" />
+  const asanaFieldsCard = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.asana_fields'))}</div>
+      <div class="muted" style="margin-top:6px">Workspace + custom field GIDs.</div>
+      <form method="post" action="/p/${p.slug}/settings/asana-fields" style="margin-top:16px">
+        <div class="row row-2">
+          <div class="form-group">
+            <label>Workspace GID</label>
+            <input name="workspace_gid" value="${escapeHtml(asanaFieldCfg?.workspace_gid ?? '')}" placeholder="123..." />
+          </div>
+          <div class="form-group">
+            <label>Auto Field GID (checkbox)</label>
+            <input name="auto_field_gid" value="${escapeHtml(asanaFieldCfg?.auto_field_gid ?? '')}" placeholder="field gid" />
+          </div>
+          <div class="form-group">
+            <label>Repo Field GID (enum)</label>
+            <input name="repo_field_gid" value="${escapeHtml(asanaFieldCfg?.repo_field_gid ?? '')}" placeholder="field gid" />
+          </div>
+          <div class="form-group">
+            <label>Status Field GID (enum)</label>
+            <input name="status_field_gid" value="${escapeHtml(asanaFieldCfg?.status_field_gid ?? '')}" placeholder="field gid" />
+          </div>
         </div>
-        <div>
-          <label>Repo</label>
-          <input name="repo" placeholder="auto-flow" />
-        </div>
-        <div>
-          <label>Make default (yes/no)</label>
-          <input name="is_default" placeholder="yes" />
-        </div>
-      </div>
-      <div style="margin-top:12px">
-        <button type="submit">Add / Update</button>
-      </div>
-    </form>
-
-    <form method="post" action="/p/${p.slug}/settings/repos/default" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Set default owner</label>
-          <input name="owner" placeholder="kiryakovTchp" />
-        </div>
-        <div>
-          <label>Set default repo</label>
-          <input name="repo" placeholder="auto-flow" />
-        </div>
-      </div>
-      <div style="margin-top:12px">
-        <button type="submit">Set Default</button>
-      </div>
-    </form>
-
-    <form method="post" action="/p/${p.slug}/settings/repos/remove" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Remove owner</label>
-          <input name="owner" placeholder="kiryakovTchp" />
-        </div>
-        <div>
-          <label>Remove repo</label>
-          <input name="repo" placeholder="auto-flow" />
-        </div>
-      </div>
-      <div style="margin-top:12px">
-        <button type="submit">Remove</button>
-      </div>
-    </form>
+        <div style="margin-top:16px"><button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.save'))}</button></div>
+      </form>
+    </div>
   `;
 
-  const linksBlock = `
-    <div class="muted">Links:</div>
-    <div class="nav">${
-      links
-        .map((l) => `<div class=\"pill\">#${escapeHtml(l.id)} ${escapeHtml(l.kind)}: ${escapeHtml(l.title ?? '')} ${escapeHtml(l.url)}</div>`)
-        .join('') || '<span class="muted">None</span>'
-    }</div>
-    <form method="post" action="/p/${p.slug}/settings/links/add" style="margin-top:12px">
-      <div class="row">
+  const statusRows = statusMap
+    .map((m) => {
+      return `
+        <tr>
+          <td>${escapeHtml(m.option_name)}</td>
+          <td><span class="badge badge-status">${escapeHtml(m.mapped_status)}</span></td>
+          <td style="width:1%;white-space:nowrap">
+            <form method="post" action="/p/${p.slug}/settings/asana-status-map/delete" style="display:inline">
+              <input type="hidden" name="option_name" value="${escapeHtml(m.option_name)}" />
+              <button class="btn btn-danger btn-sm" type="submit">${escapeHtml(t(lang, 'common.delete'))}</button>
+            </form>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const statusCard = `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
-          <label>Kind</label>
-          <input name="kind" placeholder="docs" />
+          <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.status_mapping'))}</div>
+          <div class="muted" style="margin-top:6px">Asana option name → ACTIVE/BLOCKED/CANCELLED</div>
         </div>
-        <div>
-          <label>URL</label>
-          <input name="url" placeholder="https://..." />
-        </div>
-        <div>
-          <label>Title (optional)</label>
-          <input name="title" placeholder="Runbook" />
-        </div>
-        <div>
-          <label>Tags (optional)</label>
-          <input name="tags" placeholder="backend, ci" />
-        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-status-map">+ Add</button>
       </div>
-      <div style="margin-top:12px"><button type="submit">Add Link</button></div>
-    </form>
-    <form method="post" action="/p/${p.slug}/settings/links/delete" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Delete link by id</label>
-          <input name="id" placeholder="123" />
-        </div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>Asana Option</th><th>Mapped Status</th><th>Actions</th></tr></thead>
+          <tbody>${statusRows || `<tr><td colspan="3" class="muted">No mappings yet</td></tr>`}</tbody>
+        </table>
       </div>
-      <div style="margin-top:12px"><button type="submit">Delete Link</button></div>
-      <div class="muted" style="margin-top:8px">Copy the id from the pills above.</div>
-    </form>
+    </div>
   `;
 
-  const contactsBlock = `
-    <div class="muted">Contacts:</div>
-    <div class="nav">${
-      contacts
-        .map((c) => `<div class=\"pill\">#${escapeHtml(c.id)} ${escapeHtml(c.role)}: ${escapeHtml(c.name ?? '')} ${escapeHtml(c.handle ?? '')}</div>`)
-        .join('') || '<span class="muted">None</span>'
-    }</div>
-    <form method="post" action="/p/${p.slug}/settings/contacts/add" style="margin-top:12px">
-      <div class="row">
+  const repoMapRows = repoMap
+    .map((m) => {
+      return `
+        <tr>
+          <td>${escapeHtml(m.option_name)}</td>
+          <td>${escapeHtml(m.owner)}</td>
+          <td>${escapeHtml(m.repo)}</td>
+          <td style="width:1%;white-space:nowrap">
+            <form method="post" action="/p/${p.slug}/settings/repo-map/delete" style="display:inline">
+              <input type="hidden" name="option_name" value="${escapeHtml(m.option_name)}" />
+              <button class="btn btn-danger btn-sm" type="submit">${escapeHtml(t(lang, 'common.delete'))}</button>
+            </form>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const repoMapCard = `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
-          <label>Role</label>
-          <input name="role" placeholder="owner" />
+          <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.repo_mapping'))}</div>
+          <div class="muted" style="margin-top:6px">Override Asana option name → owner/repo</div>
         </div>
-        <div>
-          <label>Name (optional)</label>
-          <input name="name" placeholder="Ivan" />
-        </div>
-        <div>
-          <label>Handle (optional)</label>
-          <input name="handle" placeholder="@kiryakov" />
-        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-repo-map">+ Add</button>
       </div>
-      <div style="margin-top:12px"><button type="submit">Add Contact</button></div>
-    </form>
-    <form method="post" action="/p/${p.slug}/settings/contacts/delete" style="margin-top:12px">
-      <div class="row">
-        <div>
-          <label>Delete contact by id</label>
-          <input name="id" placeholder="123" />
-        </div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>Asana Option</th><th>Owner</th><th>Repo</th><th>Actions</th></tr></thead>
+          <tbody>${repoMapRows || `<tr><td colspan="4" class="muted">No overrides</td></tr>`}</tbody>
+        </table>
       </div>
-      <div style="margin-top:12px"><button type="submit">Delete Contact</button></div>
-    </form>
+    </div>
   `;
 
-  return layout(
-    `${p.name} - settings`,
-    `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/settings</div>\n      ${projectNav(p, 'settings')}\n      <div class="muted">Stage 2: edit project settings.</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${secretsBlock}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${asanaList}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${repoList}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${contactsBlock}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${linksBlock}\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
-  );
+  const asanaRows = asanaProjects
+    .map((gid) => {
+      return `
+        <tr>
+          <td class="mono">${escapeHtml(gid)}</td>
+          <td style="width:1%;white-space:nowrap">
+            <form method="post" action="/p/${p.slug}/settings/asana/remove" style="display:inline">
+              <input type="hidden" name="asana_project_gid" value="${escapeHtml(gid)}" />
+              <button class="btn btn-danger btn-sm" type="submit">${escapeHtml(t(lang, 'common.delete'))}</button>
+            </form>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const asanaProjectsCard = `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.asana_projects'))}</div>
+          <div class="muted" style="margin-top:6px">Project GIDs used for sync.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-asana-project">+ Add</button>
+      </div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>Project GID</th><th>Actions</th></tr></thead>
+          <tbody>${asanaRows || `<tr><td colspan="2" class="muted">None</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const ghRows = repos
+    .map((r) => {
+      const label = `${r.owner}/${r.repo}`;
+      return `
+        <tr>
+          <td class="mono">${escapeHtml(label)}</td>
+          <td>${r.is_default ? `<span class="badge badge-success">default</span>` : `<span class="badge badge-gray">-</span>`}</td>
+          <td style="width:1%;white-space:nowrap">
+            <form method="post" action="/p/${p.slug}/settings/repos/default" style="display:inline">
+              <input type="hidden" name="owner" value="${escapeHtml(r.owner)}" />
+              <input type="hidden" name="repo" value="${escapeHtml(r.repo)}" />
+              <button class="btn btn-secondary btn-sm" type="submit">Set default</button>
+            </form>
+            <form method="post" action="/p/${p.slug}/settings/repos/remove" style="display:inline;margin-left:8px">
+              <input type="hidden" name="owner" value="${escapeHtml(r.owner)}" />
+              <input type="hidden" name="repo" value="${escapeHtml(r.repo)}" />
+              <button class="btn btn-danger btn-sm" type="submit">${escapeHtml(t(lang, 'common.delete'))}</button>
+            </form>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const githubReposCard = `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.github_repos'))}</div>
+          <div class="muted" style="margin-top:6px">Repos where issues/PRs are created.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-github-repo">+ Add</button>
+      </div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>Repository</th><th>Default</th><th>Actions</th></tr></thead>
+          <tbody>${ghRows || `<tr><td colspan="3" class="muted">None</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const contactRows = contacts
+    .map((c) => {
+      return `
+        <tr>
+          <td>${escapeHtml(c.role)}</td>
+          <td>${escapeHtml(c.name ?? '')}</td>
+          <td>${escapeHtml(c.handle ?? '')}</td>
+          <td style="width:1%;white-space:nowrap">
+            <form method="post" action="/p/${p.slug}/settings/contacts/delete" style="display:inline">
+              <input type="hidden" name="id" value="${escapeHtml(c.id)}" />
+              <button class="btn btn-danger btn-sm" type="submit">${escapeHtml(t(lang, 'common.delete'))}</button>
+            </form>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const contactsCard = `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.contacts'))}</div>
+          <div class="muted" style="margin-top:6px">Team contacts (reference).</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-contact">+ Add</button>
+      </div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>Role</th><th>Name</th><th>Handle</th><th>Actions</th></tr></thead>
+          <tbody>${contactRows || `<tr><td colspan="4" class="muted">None</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const linkRows = links
+    .map((l) => {
+      return `
+        <tr>
+          <td>${escapeHtml(l.kind)}</td>
+          <td>${escapeHtml(l.title ?? '')}</td>
+          <td><a href="${escapeHtml(l.url)}" target="_blank" rel="noreferrer">${escapeHtml(l.url)}</a></td>
+          <td>${escapeHtml(l.tags ?? '')}</td>
+          <td style="width:1%;white-space:nowrap">
+            <form method="post" action="/p/${p.slug}/settings/links/delete" style="display:inline">
+              <input type="hidden" name="id" value="${escapeHtml(l.id)}" />
+              <button class="btn btn-danger btn-sm" type="submit">${escapeHtml(t(lang, 'common.delete'))}</button>
+            </form>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const linksCard = `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:900">${escapeHtml(t(lang, 'screens.settings.links'))}</div>
+          <div class="muted" style="margin-top:6px">Docs, dashboards, runbooks.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-link">+ Add</button>
+      </div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>Kind</th><th>Title</th><th>URL</th><th>Tags</th><th>Actions</th></tr></thead>
+          <tbody>${linkRows || `<tr><td colspan="5" class="muted">None</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const modalStatusMap = `
+    <div class="modal-backdrop" id="modal-status-map" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Add Status Mapping</div>
+          <button class="modal-close" type="button" data-close-modal="modal-status-map" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${p.slug}/settings/asana-status-map">
+          <div class="modal-body">
+            <div class="row row-2">
+              <div class="form-group">
+                <label>Asana option name</label>
+                <input name="option_name" placeholder="Cancelled" />
+              </div>
+              <div class="form-group">
+                <label>Mapped status</label>
+                <input name="mapped_status" placeholder="CANCELLED" />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-status-map">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const modalRepoMap = `
+    <div class="modal-backdrop" id="modal-repo-map" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Add Repo Mapping</div>
+          <button class="modal-close" type="button" data-close-modal="modal-repo-map" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${p.slug}/settings/repo-map">
+          <div class="modal-body">
+            <div class="row row-3">
+              <div class="form-group">
+                <label>Asana option name</label>
+                <input name="option_name" placeholder="Frontend" />
+              </div>
+              <div class="form-group">
+                <label>Owner</label>
+                <input name="owner" placeholder="my-org" />
+              </div>
+              <div class="form-group">
+                <label>Repo</label>
+                <input name="repo" placeholder="frontend-repo" />
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-repo-map">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const modalAsanaProject = `
+    <div class="modal-backdrop" id="modal-asana-project" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Add Asana Project</div>
+          <button class="modal-close" type="button" data-close-modal="modal-asana-project" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${p.slug}/settings/asana/add">
+          <div class="modal-body">
+            <div class="form-group">
+              <label>Asana Project GID</label>
+              <input name="asana_project_gid" placeholder="123456..." />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-asana-project">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const modalGithubRepo = `
+    <div class="modal-backdrop" id="modal-github-repo" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Add GitHub Repository</div>
+          <button class="modal-close" type="button" data-close-modal="modal-github-repo" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${p.slug}/settings/repos/add">
+          <div class="modal-body">
+            <div class="row row-2">
+              <div class="form-group">
+                <label>Owner</label>
+                <input name="owner" placeholder="my-org" />
+              </div>
+              <div class="form-group">
+                <label>Repository</label>
+                <input name="repo" placeholder="my-repo" />
+              </div>
+            </div>
+            <div class="form-group" style="margin-top:12px">
+              <label style="text-transform:none;letter-spacing:0;font-weight:700">Set as default</label>
+              <div style="display:flex;align-items:center;gap:10px">
+                <input type="checkbox" name="is_default" value="yes" style="width:auto" />
+                <div class="muted" style="font-size:13px">Default repo for new issues</div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-github-repo">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const modalContact = `
+    <div class="modal-backdrop" id="modal-contact" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Add Contact</div>
+          <button class="modal-close" type="button" data-close-modal="modal-contact" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${p.slug}/settings/contacts/add">
+          <div class="modal-body">
+            <div class="row row-3">
+              <div class="form-group"><label>Role</label><input name="role" placeholder="Developer" /></div>
+              <div class="form-group"><label>Name</label><input name="name" placeholder="John Doe" /></div>
+              <div class="form-group"><label>Handle</label><input name="handle" placeholder="john_doe" /></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-contact">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const modalLink = `
+    <div class="modal-backdrop" id="modal-link" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Add Link</div>
+          <button class="modal-close" type="button" data-close-modal="modal-link" aria-label="Close">×</button>
+        </div>
+        <form method="post" action="/p/${p.slug}/settings/links/add">
+          <div class="modal-body">
+            <div class="row row-2">
+              <div class="form-group"><label>Kind</label><input name="kind" placeholder="Wiki" /></div>
+              <div class="form-group"><label>Title</label><input name="title" placeholder="Setup Guide" /></div>
+              <div class="form-group"><label>URL</label><input name="url" placeholder="https://..." /></div>
+              <div class="form-group"><label>Tags</label><input name="tags" placeholder="setup, docs" /></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-link">${escapeHtml(t(lang, 'common.cancel'))}</button>
+            <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const inner = `
+    <div class="grid">
+      ${secretsCard}
+      ${asanaFieldsCard}
+      ${statusCard}
+      ${repoMapCard}
+      ${asanaProjectsCard}
+      ${githubReposCard}
+      ${contactsCard}
+      ${linksCard}
+    </div>
+    ${modalStatusMap}
+    ${modalRepoMap}
+    ${modalAsanaProject}
+    ${modalGithubRepo}
+    ${modalContact}
+    ${modalLink}
+  `;
+
+  return projectShell(lang, p, 'settings', `/p/${p.slug}/settings`, inner);
 }
 
 function projectApiPage(
@@ -1143,6 +1626,7 @@ function projectApiPage(
   tokens: Array<{ id: string; name: string | null; created_at: string; last_used_at: string | null; revoked_at: string | null; token_hash: string }>,
   createdToken: string | null = null,
   canAdmin = false,
+  lang: UiLang,
 ): string {
   const tokenList = tokens
     .map((t) => {
@@ -1163,104 +1647,135 @@ function projectApiPage(
 
   const base = `http://localhost:${escapeHtml(String(process.env.PORT ?? '3000'))}`;
   const createdBlock = createdToken
-    ? `<div class="pill" style="border-color:#4fd1c5">Token created (shown once)</div>
-       <pre style="white-space:pre-wrap">${escapeHtml(createdToken)}</pre>
-       <div class="muted">Example:</div>
-       <pre style="white-space:pre-wrap">curl -H "Authorization: Bearer ${escapeHtml(createdToken)}" ${base}/api/v1/projects/${escapeHtml(p.slug)}/summary</pre>`
+    ? `
+      <div class="card" style="margin-bottom:16px">
+        <div class="badge badge-warning" style="margin-bottom:12px">${escapeHtml(t(lang, 'screens.api.token_created'))}</div>
+        <div class="muted" style="margin-bottom:12px">${escapeHtml(t(lang, 'screens.api.token_warning'))}</div>
+        ${renderCodeBlock(createdToken, { copyLabel: t(lang, 'common.copy') })}
+        <div class="muted" style="margin-top:12px">Example:</div>
+        ${renderCodeBlock(`curl -H "Authorization: Bearer ${createdToken}" ${base}/api/v1/projects/${p.slug}/summary`, { copyLabel: t(lang, 'common.copy') })}
+      </div>
+    `
     : '';
 
-  const adminBlock = canAdmin
+  const tokenRows = tokens
+    .map((t0) => {
+      const status = t0.revoked_at ? 'revoked' : 'active';
+      const label = (t0.name ?? '').trim() ? `${escapeHtml(t0.name ?? '')}` : '(unnamed)';
+      const hashShort = escapeHtml(String(t0.token_hash).slice(0, 10));
+      const revokeBtn =
+        canAdmin && !t0.revoked_at
+          ? `
+            <form method="post" action="/p/${p.slug}/api/tokens/revoke" style="display:inline">
+              <input type="hidden" name="token_id" value="${escapeHtml(String(t0.id))}" />
+              <button class="btn btn-danger btn-sm" type="submit">${escapeHtml(t(lang, 'screens.api.revoke'))}</button>
+            </form>
+          `
+          : '';
+      return `
+        <tr>
+          <td class="mono">${escapeHtml(String(t0.id))}</td>
+          <td>${label}</td>
+          <td><span class="badge ${status === 'active' ? 'badge-success' : 'badge-gray'}">${escapeHtml(status)}</span></td>
+          <td class="mono muted">${hashShort}...</td>
+          <td class="muted">${escapeHtml(String(t0.created_at))}</td>
+          <td class="muted">${escapeHtml(String(t0.last_used_at ?? ''))}</td>
+          <td class="muted">${escapeHtml(String(t0.revoked_at ?? ''))}</td>
+          <td style="width:1%;white-space:nowrap">${revokeBtn}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const createTokenModal = canAdmin
     ? `
-      <div class="muted" style="margin-top:16px">Create API token (project-scoped):</div>
-      <form method="post" action="/p/${p.slug}/api/tokens/create" style="margin-top:12px">
-        <div class="row">
-          <div>
-            <label>Name (optional)</label>
-            <input name="name" placeholder="CI dashboard" />
+      <div class="modal-backdrop" id="modal-create-token" role="dialog" aria-modal="true">
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-title">${escapeHtml(t(lang, 'screens.api.create_token'))}</div>
+            <button class="modal-close" type="button" data-close-modal="modal-create-token" aria-label="Close">×</button>
           </div>
+          <form method="post" action="/p/${p.slug}/api/tokens/create">
+            <div class="modal-body">
+              <div class="form-group">
+                <label>Name (optional)</label>
+                <input name="name" placeholder="CI dashboard" />
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-ghost btn-md" type="button" data-close-modal="modal-create-token">${escapeHtml(t(lang, 'common.cancel'))}</button>
+              <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.create'))}</button>
+            </div>
+          </form>
         </div>
-        <div style="margin-top:12px"><button type="submit">Create Token</button></div>
-      </form>
-
-      <div class="muted" style="margin-top:16px">Revoke token:</div>
-      <form method="post" action="/p/${p.slug}/api/tokens/revoke" style="margin-top:12px">
-        <div class="row">
-          <div>
-            <label>Token id</label>
-            <input name="token_id" placeholder="123" />
-          </div>
-        </div>
-        <div style="margin-top:12px"><button type="submit">Revoke</button></div>
-      </form>
+      </div>
     `
-    : `<div class="muted" style="margin-top:16px">Only project admins can create/revoke API tokens.</div>`;
+    : '';
 
-  return layout(
-    `${p.name} - api`,
-    `<div class="card">
-      <h1>${escapeHtml(p.name)}</h1>
-      <div class="muted">/p/${escapeHtml(p.slug)}/api</div>
-      ${projectNav(p, 'api')}
-      ${createdBlock}
+  const endpoints = `${base}/api/v1/openapi.json
 
-      <div class="muted" style="margin-top:16px">API endpoints (Bearer token):</div>
-      <pre style="white-space:pre-wrap">${base}/api/v1/openapi.json
+${base}/api/v1/projects/${p.slug}/summary
+${base}/api/v1/projects/${p.slug}/settings
+${base}/api/v1/projects/${p.slug}/links
+${base}/api/v1/projects/${p.slug}/contacts
+${base}/api/v1/projects/${p.slug}/repos
+${base}/api/v1/projects/${p.slug}/asana-projects
+${base}/api/v1/projects/${p.slug}/tasks
+${base}/api/v1/projects/${p.slug}/tasks/:id
+${base}/api/v1/projects/${p.slug}/tasks/:id/events
 
-${base}/api/v1/projects/${escapeHtml(p.slug)}/summary
-${base}/api/v1/projects/${escapeHtml(p.slug)}/settings
-${base}/api/v1/projects/${escapeHtml(p.slug)}/links
-${base}/api/v1/projects/${escapeHtml(p.slug)}/contacts
-${base}/api/v1/projects/${escapeHtml(p.slug)}/repos
-${base}/api/v1/projects/${escapeHtml(p.slug)}/asana-projects
-${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks
-${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks/:id
-${base}/api/v1/projects/${escapeHtml(p.slug)}/tasks/:id/events
+${base}/api/v1/projects/${p.slug}/funnel
+${base}/api/v1/projects/${p.slug}/lead-time
+${base}/api/v1/projects/${p.slug}/failures
+${base}/api/v1/projects/${p.slug}/webhooks/health
+${base}/api/v1/projects/${p.slug}/jobs/health`;
 
-${base}/api/v1/projects/${escapeHtml(p.slug)}/funnel
-${base}/api/v1/projects/${escapeHtml(p.slug)}/lead-time
-${base}/api/v1/projects/${escapeHtml(p.slug)}/failures
-${base}/api/v1/projects/${escapeHtml(p.slug)}/webhooks/health
-${base}/api/v1/projects/${escapeHtml(p.slug)}/jobs/health</pre>
+  const inner = `
+    ${createdBlock}
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.api.endpoints'))}</div>
+      <div style="margin-top:12px">${renderCodeBlock(endpoints, { copyLabel: t(lang, 'common.copy') })}</div>
+    </div>
 
-      <div class="muted" style="margin-top:16px">Tokens</div>
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Hash</th>
-            <th>Created</th>
-            <th>Last used</th>
-            <th>Revoked</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tokenList || '<tr><td colspan="7" class="muted">No tokens yet</td></tr>'}
-        </tbody>
-      </table>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:900">${escapeHtml(t(lang, 'screens.api.tokens'))}</div>
+          <div class="muted" style="margin-top:6px">Project-scoped Bearer tokens.</div>
+        </div>
+        ${canAdmin ? `<button class="btn btn-primary btn-sm" type="button" data-open-modal="modal-create-token">+ ${escapeHtml(t(lang, 'screens.api.create_token'))}</button>` : ''}
+      </div>
+      <div style="margin-top:14px;overflow:auto">
+        <table>
+          <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Hash</th><th>Created</th><th>Last used</th><th>Revoked</th><th></th></tr></thead>
+          <tbody>${tokenRows || `<tr><td colspan="8" class="muted">No tokens yet</td></tr>`}</tbody>
+        </table>
+      </div>
+      ${canAdmin ? '' : `<div class="muted" style="margin-top:12px">Only project admins can create/revoke API tokens.</div>`}
+    </div>
+    ${createTokenModal}
+  `;
 
-      ${adminBlock}
-
-      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>
-    </div>`,
-  );
+  return projectShell(lang, p, 'api', `/p/${p.slug}/api`, inner);
 }
 
-function projectKnowledgePage(p: { slug: string; name: string }, md: string): string {
+function projectKnowledgePage(p: { slug: string; name: string }, md: string, lang: UiLang): string {
   const safe = md.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const inner = `
+    <div class="card">
+      <div style="font-weight:900">${escapeHtml(t(lang, 'screens.knowledge.title'))}</div>
+      <div class="muted" style="margin-top:6px">${escapeHtml(t(lang, 'screens.knowledge.subtitle'))}</div>
+      <form method="post" action="/p/${p.slug}/knowledge" style="margin-top:16px">
+        <div class="form-group">
+          <label>${escapeHtml(t(lang, 'screens.knowledge.markdown'))}</label>
+          <textarea name="markdown" style="min-height:280px;font-family:var(--font-mono);font-size:13px">${safe}</textarea>
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'screens.knowledge.save'))}</button>
+        </div>
+      </form>
+    </div>
+  `;
 
-  return layout(
-    `${p.name} - knowledge`,
-    `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/knowledge</div>\n      ${projectNav(p, 'knowledge')}\n      <div class="muted">Notes are stored in DB (markdown).</div>\n      <form method="post" action="/p/${p.slug}/knowledge">\n        <div style="margin-top:12px">\n          <label>Markdown</label>\n          <textarea name="markdown" style="width:100%;box-sizing:border-box;min-height:220px;border-radius:12px;border:1px solid rgba(232,238,247,0.12);background:rgba(0,0,0,0.22);color:#e8eef7;padding:10px 12px;">${safe}</textarea>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Save</button>\n        </div>\n      </form>\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
-  );
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+  return projectShell(lang, p, 'knowledge', `/p/${p.slug}/knowledge`, inner);
 }

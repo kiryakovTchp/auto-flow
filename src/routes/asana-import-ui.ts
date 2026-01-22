@@ -5,12 +5,14 @@ import { getProjectBySlug } from '../db/projects';
 import { getMembership } from '../db/projects';
 import { requireSession } from '../security/sessions';
 import { importAsanaTasksForProject } from '../services/import-from-asana';
-import { pageShell, escapeHtml } from '../services/html';
+import { escapeHtml, pageShell, renderLanguageToggle, renderTopbar } from '../services/html';
+import { getLangFromRequest } from '../services/i18n';
 
 export function asanaImportUiRouter(): Router {
   const r = Router();
 
   r.post('/p/:slug/import/asana', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
     if (!p) {
@@ -29,24 +31,31 @@ export function asanaImportUiRouter(): Router {
 
     try {
       const result = await importAsanaTasksForProject({ projectId: p.id, projectSlug: p.slug, days });
+      const top = renderTopbar({
+        title: 'Import from Asana',
+        subtitle: p.name,
+        rightHtml: `<a class="btn btn-secondary btn-sm" href="/p/${escapeHtml(p.slug)}">Back</a>${renderLanguageToggle(lang)}`,
+      });
       const body = `
-        <div class="card">
-          <h1 style="margin:0 0 8px">Import from Asana</h1>
-          <div class="muted">Project: <a href="/p/${escapeHtml(p.slug)}">${escapeHtml(p.name)}</a></div>
-          <pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>
-          <div style="margin-top:12px"><a href="/p/${escapeHtml(p.slug)}">← Back</a></div>
+        <div class="container">
+          ${top}
+          <div class="card"><pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre></div>
         </div>
       `;
-      res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(pageShell({ title: 'Asana import', body }));
+      res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(pageShell({ title: 'Asana import', lang, body }));
     } catch (err: any) {
+      const top = renderTopbar({
+        title: 'Import from Asana - error',
+        subtitle: p.name,
+        rightHtml: `<a class="btn btn-secondary btn-sm" href="/p/${escapeHtml(p.slug)}">Back</a>${renderLanguageToggle(lang)}`,
+      });
       const body = `
-        <div class="card">
-          <h1 style="margin:0 0 8px">Import from Asana - error</h1>
-          <pre>${escapeHtml(String(err?.message ?? err))}</pre>
-          <div style="margin-top:12px"><a href="/p/${escapeHtml(p.slug)}">← Back</a></div>
+        <div class="container">
+          ${top}
+          <div class="card"><pre>${escapeHtml(String(err?.message ?? err))}</pre></div>
         </div>
       `;
-      res.status(500).setHeader('Content-Type', 'text/html; charset=utf-8').send(pageShell({ title: 'Asana import error', body }));
+      res.status(500).setHeader('Content-Type', 'text/html; charset=utf-8').send(pageShell({ title: 'Asana import error', lang, body }));
     }
   });
 
