@@ -15,6 +15,12 @@ export type AsanaEnumOption = {
   name: string;
 };
 
+export type AsanaCustomFieldSummary = {
+  gid: string;
+  name: string;
+  resource_subtype: string | null;
+};
+
 export type AsanaWebhook = {
   gid: string;
 };
@@ -144,6 +150,27 @@ export class AsanaClient {
         resource_subtype: r.resource_subtype == null ? null : String(r.resource_subtype),
       }))
       .filter((r: any) => r.gid && r.name);
+  }
+
+  async getProjectCustomFields(projectGid: string): Promise<{ workspaceGid: string | null; fields: AsanaCustomFieldSummary[] }> {
+    const data = await this.asanaRequest<{ data: any }>(
+      'GET',
+      `/projects/${projectGid}?opt_fields=workspace.gid,custom_field_settings.custom_field.gid,custom_field_settings.custom_field.name,custom_field_settings.custom_field.resource_subtype`,
+    );
+
+    const workspaceGid = data.data?.workspace?.gid ? String(data.data.workspace.gid) : null;
+    const settings = Array.isArray(data.data?.custom_field_settings) ? data.data.custom_field_settings : [];
+    const fields = settings
+      .map((s: any) => s?.custom_field)
+      .filter(Boolean)
+      .map((f: any) => ({
+        gid: String(f.gid),
+        name: String(f.name),
+        resource_subtype: f.resource_subtype == null ? null : String(f.resource_subtype),
+      }))
+      .filter((f: AsanaCustomFieldSummary) => f.gid && f.name);
+
+    return { workspaceGid, fields };
   }
 
   async setTaskCustomFields(taskGid: string, customFields: Record<string, string | boolean | null>): Promise<void> {

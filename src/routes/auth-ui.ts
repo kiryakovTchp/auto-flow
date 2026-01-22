@@ -668,12 +668,12 @@ export function authUiRouter(): Router {
         );
     };
 
-    const sampleTaskGid = String((req.body as any)?.sample_task_gid ?? '').trim();
-    if (!sampleTaskGid) {
+    const sampleInput = String((req.body as any)?.sample_task_gid ?? '').trim();
+    if (!sampleInput) {
       await renderSettings({
         kind: 'error',
-        title: 'Missing sample task GID',
-        message: 'Paste a task GID from the Asana project where AutoTask/Repo/STATUS fields are visible.',
+        title: 'Missing Asana URL/GID',
+        message: 'Paste an Asana task or project URL/GID where AutoTask/Repo/STATUS fields are visible.',
       });
       return;
     }
@@ -690,8 +690,36 @@ export function authUiRouter(): Router {
 
     try {
       const asana = new AsanaClient(asanaPat);
-      const task = await asana.getTask(sampleTaskGid);
-      const customFields = Array.isArray((task as any)?.custom_fields) ? (task as any).custom_fields : [];
+
+      const gids = Array.from(sampleInput.matchAll(/\d{6,}/g)).map((m) => m[0]);
+      if (!gids.length) {
+        await renderSettings({
+          kind: 'error',
+          title: 'Invalid input',
+          message: 'Could not find a numeric Asana GID in the provided value. Paste a task/project URL or a numeric GID.',
+        });
+        return;
+      }
+
+      const taskGidCandidate = gids[gids.length - 1];
+      const projectGidCandidate = gids.length >= 2 ? gids[gids.length - 2] : gids[0];
+
+      let source: 'task' | 'project' = 'task';
+      let usedGid = taskGidCandidate;
+      let workspaceGid: string | null = null;
+      let customFields: any[] = [];
+
+      try {
+        const task = await asana.getTask(taskGidCandidate);
+        workspaceGid = (task as any)?.workspace?.gid ? String((task as any).workspace.gid) : null;
+        customFields = Array.isArray((task as any)?.custom_fields) ? (task as any).custom_fields : [];
+      } catch {
+        const project = await asana.getProjectCustomFields(projectGidCandidate);
+        source = 'project';
+        usedGid = projectGidCandidate;
+        workspaceGid = project.workspaceGid;
+        customFields = project.fields;
+      }
 
       const norm = (s: string) => s.trim().toLowerCase().replace(/[_-]/g, ' ');
       const findFieldGid = (candidates: string[]): string | null => {
@@ -700,7 +728,6 @@ export function authUiRouter(): Router {
         return f?.gid ? String(f.gid) : null;
       };
 
-      const workspaceGid = (task as any)?.workspace?.gid ? String((task as any).workspace.gid) : null;
       const autoFieldGid = findFieldGid(['AutoTask', 'Auto Task', 'auto_task', 'auto-task']);
       const repoFieldGid = findFieldGid(['Repo', 'repo']);
       const statusFieldGid = findFieldGid(['STATUS', 'Status', 'status']);
@@ -727,7 +754,7 @@ export function authUiRouter(): Router {
         statusFieldGid ? `STATUS: ${statusFieldGid}` : null,
       ].filter((x): x is string => typeof x === 'string' && x.length > 0);
 
-      const msgParts = [`Sample task: ${sampleTaskGid}`];
+      const msgParts = [`Input: ${sampleInput}`, `Detected from ${source} GID: ${usedGid}`];
       if (foundLines.length) msgParts.push('', ...foundLines);
       if (missing.length) msgParts.push('', `Missing: ${missing.join(', ')}`);
 
@@ -1350,13 +1377,13 @@ function projectSettingsPage(
 
       <div class="divider" style="margin:16px 0"></div>
       <div style="font-weight:900">Auto-detect field GIDs</div>
-      <div class="muted" style="margin-top:6px">Uses your saved Asana PAT. Recommended: paste any task GID from the project where the fields are visible.</div>
+      <div class="muted" style="margin-top:6px">Uses your saved Asana PAT. Paste a task URL/GID (or project URL/GID) from where the fields are visible.</div>
       <form method="post" action="/p/${p.slug}/settings/asana-fields/detect" style="margin-top:14px">
         <div class="row row-2">
           <div class="form-group">
-            <label>Sample task GID</label>
-            <input name="sample_task_gid" placeholder="123..." />
-            <div class="helper">Expected field names: AutoTask, Repo, STATUS.</div>
+            <label>Sample task/project (GID or URL)</label>
+            <input name="sample_task_gid" placeholder="https://app.asana.com/0/PROJECT/TASK" />
+            <div class="helper">Expected field names: AutoTask, Repo, STATUS. In Asana URLs it's usually the 2nd number.</div>
           </div>
         </div>
         <div style="margin-top:12px"><button class="btn btn-secondary btn-md" type="submit">Detect</button></div>
