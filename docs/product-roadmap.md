@@ -124,7 +124,8 @@ Knowledge / RAG:
 ## 2) Staged Implementation Plan
 
 ### Stage 0 (Security backlog; scheduled later)
-NOTE: Real secrets were found in `docs/apikeys.md`. Actions required before production:
+NOTE: Real secrets were previously found in `docs/apikeys.md` (now removed; see `docs/apikeys.example.md`).
+Actions required before production:
 - Rotate Asana PAT, GitHub PAT, GitHub webhook secret
 - Remove secrets from repo and clean git history (filter-repo/BFG) if allowed
 
