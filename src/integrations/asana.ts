@@ -45,7 +45,7 @@ export class AsanaClient {
   async getTask(taskGid: string): Promise<AsanaTask> {
     const data = await this.asanaRequest<{ data: any }>(
       'GET',
-      `/tasks/${taskGid}?opt_fields=gid,name,notes,completed,permalink_url,custom_fields,custom_fields.gid,custom_fields.boolean_value,custom_fields.enum_value.name`,
+      `/tasks/${taskGid}?opt_fields=gid,name,notes,completed,permalink_url,workspace.gid,custom_fields,custom_fields.gid,custom_fields.name,custom_fields.resource_subtype,custom_fields.boolean_value,custom_fields.enum_value.name,custom_fields.multi_enum_values.name`,
     );
     return {
       gid: String(data.data.gid),
@@ -55,6 +55,7 @@ export class AsanaClient {
       permalink_url: typeof data.data.permalink_url === 'string' ? data.data.permalink_url : undefined,
       // keep raw custom fields for stage 5 gating
       ...(Array.isArray(data.data.custom_fields) ? { custom_fields: data.data.custom_fields } : {}),
+      ...(data.data?.workspace?.gid ? { workspace: data.data.workspace } : {}),
     } as any;
   }
 
@@ -127,6 +128,22 @@ export class AsanaClient {
     return opts
       .map((o: any) => ({ gid: String(o.gid), name: String(o.name) }))
       .filter((o: AsanaEnumOption) => o.gid && o.name);
+  }
+
+  async listWorkspaceCustomFields(workspaceGid: string): Promise<Array<{ gid: string; name: string; resource_subtype: string | null }>> {
+    const data = await this.asanaRequest<{ data: any[] }>(
+      'GET',
+      `/workspaces/${workspaceGid}/custom_fields?opt_fields=gid,name,resource_subtype`,
+    );
+
+    const rows = Array.isArray(data.data) ? data.data : [];
+    return rows
+      .map((r: any) => ({
+        gid: String(r.gid),
+        name: String(r.name),
+        resource_subtype: r.resource_subtype == null ? null : String(r.resource_subtype),
+      }))
+      .filter((r: any) => r.gid && r.name);
   }
 
   async setTaskCustomFields(taskGid: string, customFields: Record<string, string | boolean | null>): Promise<void> {

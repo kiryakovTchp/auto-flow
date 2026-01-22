@@ -40,6 +40,14 @@ export function projectTasksUiRouter(): Router {
     return null;
   }
 
+  function parseBoolFromString(s: string): boolean | null {
+    const v = s.trim().toLowerCase();
+    if (!v) return null;
+    if (['true', 'yes', 'on', 'enabled', 'enable', '1'].includes(v)) return true;
+    if (['false', 'no', 'off', 'disabled', 'disable', '0'].includes(v)) return false;
+    return null;
+  }
+
   r.get('/p/:slug', requireSession, async (req: Request, res: Response) => {
     const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
@@ -151,7 +159,26 @@ export function projectTasksUiRouter(): Router {
     if (fieldCfg) {
       const updates: Record<string, string | boolean | null> = {};
       if (fieldCfg.auto_field_gid) {
-        updates[fieldCfg.auto_field_gid] = autoEnabled;
+        // AutoTask can be either a checkbox (boolean) or an enum (True/False).
+        let autoValue: string | boolean | null = autoEnabled;
+        try {
+          const createdTask = await asana.getTask(created.taskGid);
+          const cfs = Array.isArray((createdTask as any)?.custom_fields) ? (createdTask as any).custom_fields : [];
+          const f = cfs.find((x: any) => String(x?.gid ?? '') === String(fieldCfg.auto_field_gid));
+          const subtype = typeof f?.resource_subtype === 'string' ? String(f.resource_subtype) : '';
+          if (subtype === 'enum') {
+            const options = await asana.getEnumOptionsForCustomField(fieldCfg.auto_field_gid);
+            const opt = options.find((o) => parseBoolFromString(o.name) === autoEnabled);
+            if (!opt) {
+              res.status(400).send('AutoTask field is enum but does not have a True/False option. Create options named True and False.');
+              return;
+            }
+            autoValue = opt.gid;
+          }
+        } catch {
+          // best-effort detection; fall back to boolean
+        }
+        updates[fieldCfg.auto_field_gid] = autoValue;
       }
 
       if (repoChoice && fieldCfg.repo_field_gid) {

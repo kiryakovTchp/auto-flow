@@ -36,6 +36,7 @@ import {
 import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
+import { AsanaClient } from '../integrations/asana';
 import { escapeHtml, pageShell, renderCodeBlock, renderLanguageToggle, renderTabs, renderTopbar } from '../services/html';
 import { getLangFromRequest, normalizeLang, setLangCookie, t, type UiLang } from '../services/i18n';
 import { tokenHash } from '../security/init-admin';
@@ -617,6 +618,136 @@ export function authUiRouter(): Router {
     res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
   });
 
+  r.post('/p/:slug/settings/asana-fields/detect', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can edit settings');
+      return;
+    }
+
+    const renderSettings = async (notice?: { kind: 'success' | 'error'; title: string; message: string }) => {
+      const asanaProjects = await listProjectAsanaProjects(p.id);
+      const repos = await listProjectGithubRepos(p.id);
+
+      const hasAsanaPat = Boolean(await getProjectSecretPlain(p.id, 'ASANA_PAT'));
+      const hasGithubToken = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_TOKEN'));
+      const hasGithubWebhookSecret = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_WEBHOOK_SECRET'));
+
+      const asanaFieldCfg = await getAsanaFieldConfig(p.id);
+      const statusMap = await listAsanaStatusMap(p.id);
+      const repoMap = await listRepoMap(p.id);
+
+      const links = await listProjectLinks(p.id);
+      const contacts = await listProjectContacts(p.id);
+
+      res
+        .status(200)
+        .setHeader('Content-Type', 'text/html; charset=utf-8')
+        .send(
+          projectSettingsPage(
+            p,
+            asanaProjects,
+            repos,
+            { hasAsanaPat, hasGithubToken, hasGithubWebhookSecret },
+            asanaFieldCfg,
+            statusMap,
+            repoMap,
+            links,
+            contacts,
+            lang,
+            notice,
+          ),
+        );
+    };
+
+    const sampleTaskGid = String((req.body as any)?.sample_task_gid ?? '').trim();
+    if (!sampleTaskGid) {
+      await renderSettings({
+        kind: 'error',
+        title: 'Missing sample task GID',
+        message: 'Paste a task GID from the Asana project where AutoTask/Repo/STATUS fields are visible.',
+      });
+      return;
+    }
+
+    const asanaPat = await getProjectSecretPlain(p.id, 'ASANA_PAT');
+    if (!asanaPat) {
+      await renderSettings({
+        kind: 'error',
+        title: 'Missing ASANA_PAT',
+        message: 'Set ASANA_PAT in Secrets first, then retry auto-detect.',
+      });
+      return;
+    }
+
+    try {
+      const asana = new AsanaClient(asanaPat);
+      const task = await asana.getTask(sampleTaskGid);
+      const customFields = Array.isArray((task as any)?.custom_fields) ? (task as any).custom_fields : [];
+
+      const norm = (s: string) => s.trim().toLowerCase().replace(/[_-]/g, ' ');
+      const findFieldGid = (candidates: string[]): string | null => {
+        const want = new Set(candidates.map(norm));
+        const f = customFields.find((x: any) => typeof x?.name === 'string' && want.has(norm(String(x.name))));
+        return f?.gid ? String(f.gid) : null;
+      };
+
+      const workspaceGid = (task as any)?.workspace?.gid ? String((task as any).workspace.gid) : null;
+      const autoFieldGid = findFieldGid(['AutoTask', 'Auto Task', 'auto_task', 'auto-task']);
+      const repoFieldGid = findFieldGid(['Repo', 'repo']);
+      const statusFieldGid = findFieldGid(['STATUS', 'Status', 'status']);
+
+      const updates: any = { projectId: p.id };
+      if (workspaceGid) updates.workspaceGid = workspaceGid;
+      if (autoFieldGid) updates.autoFieldGid = autoFieldGid;
+      if (repoFieldGid) updates.repoFieldGid = repoFieldGid;
+      if (statusFieldGid) updates.statusFieldGid = statusFieldGid;
+
+      if (updates.workspaceGid || updates.autoFieldGid || updates.repoFieldGid || updates.statusFieldGid) {
+        await upsertAsanaFieldConfig(updates);
+      }
+
+      const missing: string[] = [];
+      if (!autoFieldGid) missing.push('AutoTask');
+      if (!repoFieldGid) missing.push('Repo');
+      if (!statusFieldGid) missing.push('STATUS');
+
+      const foundLines = [
+        workspaceGid ? `Workspace: ${workspaceGid}` : null,
+        autoFieldGid ? `AutoTask: ${autoFieldGid}` : null,
+        repoFieldGid ? `Repo: ${repoFieldGid}` : null,
+        statusFieldGid ? `STATUS: ${statusFieldGid}` : null,
+      ].filter((x): x is string => typeof x === 'string' && x.length > 0);
+
+      const msgParts = [`Sample task: ${sampleTaskGid}`];
+      if (foundLines.length) msgParts.push('', ...foundLines);
+      if (missing.length) msgParts.push('', `Missing: ${missing.join(', ')}`);
+
+      const ok = Boolean(autoFieldGid && repoFieldGid && statusFieldGid);
+      const anyFound = Boolean(workspaceGid || autoFieldGid || repoFieldGid || statusFieldGid);
+
+      await renderSettings({
+        kind: ok ? 'success' : 'error',
+        title: ok ? 'Asana field detection complete' : anyFound ? 'Asana field detection incomplete' : 'Asana field detection failed',
+        message: msgParts.join('\n'),
+      });
+    } catch (e: any) {
+      await renderSettings({
+        kind: 'error',
+        title: 'Asana API error',
+        message: String(e?.message ?? e),
+      });
+    }
+  });
+
   r.post('/p/:slug/settings/asana-status-map', requireSession, async (req: Request, res: Response) => {
     const slug = String(req.params.slug);
     const p = await getProjectBySlug(slug);
@@ -1141,7 +1272,17 @@ function projectSettingsPage(
   links: Array<{ id: string; kind: string; url: string; title: string | null; tags: string | null }>,
   contacts: Array<{ id: string; role: string; name: string | null; handle: string | null }>,
   lang: UiLang,
+  notice?: { kind: 'success' | 'error'; title: string; message: string },
 ): string {
+  const noticeCard = notice
+    ? `
+      <div class="card" style="border-color:${notice.kind === 'success' ? '#2dd4bf' : '#ff6b6b'};margin-bottom:16px">
+        <div style="font-weight:900">${escapeHtml(notice.title)}</div>
+        <div class="muted" style="margin-top:8px;white-space:pre-wrap">${escapeHtml(notice.message)}</div>
+      </div>
+    `
+    : '';
+
   const secretBadges = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
       <span class="badge ${secrets.hasAsanaPat ? 'badge-success' : 'badge-gray'}">Asana PAT: ${secrets.hasAsanaPat ? 'set' : 'missing'}</span>
@@ -1192,7 +1333,7 @@ function projectSettingsPage(
             <input name="workspace_gid" value="${escapeHtml(asanaFieldCfg?.workspace_gid ?? '')}" placeholder="123..." />
           </div>
           <div class="form-group">
-            <label>Auto Field GID (checkbox)</label>
+            <label>Auto Field GID (AutoTask)</label>
             <input name="auto_field_gid" value="${escapeHtml(asanaFieldCfg?.auto_field_gid ?? '')}" placeholder="field gid" />
           </div>
           <div class="form-group">
@@ -1205,6 +1346,20 @@ function projectSettingsPage(
           </div>
         </div>
         <div style="margin-top:16px"><button class="btn btn-primary btn-md" type="submit">${escapeHtml(t(lang, 'common.save'))}</button></div>
+      </form>
+
+      <div class="divider" style="margin:16px 0"></div>
+      <div style="font-weight:900">Auto-detect field GIDs</div>
+      <div class="muted" style="margin-top:6px">Uses your saved Asana PAT. Recommended: paste any task GID from the project where the fields are visible.</div>
+      <form method="post" action="/p/${p.slug}/settings/asana-fields/detect" style="margin-top:14px">
+        <div class="row row-2">
+          <div class="form-group">
+            <label>Sample task GID</label>
+            <input name="sample_task_gid" placeholder="123..." />
+            <div class="helper">Expected field names: AutoTask, Repo, STATUS.</div>
+          </div>
+        </div>
+        <div style="margin-top:12px"><button class="btn btn-secondary btn-md" type="submit">Detect</button></div>
       </form>
     </div>
   `;
@@ -1600,6 +1755,7 @@ function projectSettingsPage(
   `;
 
   const inner = `
+    ${noticeCard}
     <div class="grid">
       ${secretsCard}
       ${asanaFieldsCard}
