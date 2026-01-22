@@ -1,6 +1,7 @@
 import type { UiLang } from './i18n';
 
-export function escapeHtml(s: string): string {
+export function escapeHtml(input: string): string {
+  const s = String(input ?? '');
   return s
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
