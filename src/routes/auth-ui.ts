@@ -42,6 +42,50 @@ import { authenticateUser, newSessionId, optionalSession, requireSession, SESSIO
 export function authUiRouter(): Router {
   const r = Router();
 
+  r.get('/docs', optionalSession, async (req: Request, res: Response) => {
+    const envBase = String(process.env.PUBLIC_BASE_URL ?? '').trim();
+    const base = envBase || `http://localhost:${escapeHtml(String(process.env.PORT ?? '3000'))}`;
+    const username = (req as any)?.auth?.username ? String((req as any).auth.username) : null;
+
+    const body = `
+      <div class="card">
+        <h1>Auto-Flow Docs</h1>
+        <div class="muted">${username ? `Logged in as ${escapeHtml(username)}` : 'Not logged in'}</div>
+
+        <div class="muted" style="margin-top:12px">Quick links</div>
+        <div class="nav">
+          <div class="pill"><a href="/health">/health</a></div>
+          <div class="pill"><a href="/metrics">/metrics</a></div>
+          <div class="pill"><a href="/api/v1/openapi.json">/api/v1/openapi.json</a></div>
+          <div class="pill"><a href="/app">/app</a></div>
+        </div>
+
+        <div class="muted" style="margin-top:12px">Local dev</div>
+        <pre style="white-space:pre-wrap">docker compose up -d
+npm run dev</pre>
+
+        <div class="muted" style="margin-top:12px">Init admin (one-time)</div>
+        <pre style="white-space:pre-wrap">${escapeHtml(base)}/init?token=&lt;INIT_ADMIN_TOKEN&gt;</pre>
+
+        <div class="muted" style="margin-top:12px">API token (project-scoped)</div>
+        <div class="muted">Create a token in <code>/p/:slug/api</code>, then call:</div>
+        <pre style="white-space:pre-wrap">curl -H "Authorization: Bearer &lt;PROJECT_API_TOKEN&gt;" ${escapeHtml(base)}/api/v1/projects/&lt;slug&gt;/summary</pre>
+
+        <div class="muted" style="margin-top:12px">Metrics</div>
+        <div class="muted">If <code>METRICS_TOKEN</code> is set:</div>
+        <pre style="white-space:pre-wrap">curl -H "Authorization: Bearer &lt;METRICS_TOKEN&gt;" ${escapeHtml(base)}/metrics</pre>
+
+        <div class="muted" style="margin-top:12px">Deploy</div>
+        <pre style="white-space:pre-wrap">docker compose -f deploy/docker-compose.yml --env-file deploy/staging.env up -d --build</pre>
+        <div class="muted">See <code>docs/deploy.md</code> and <code>docs/ci-cd.md</code>.</div>
+
+        <div style="margin-top:12px"><a href="/app">← Back</a></div>
+      </div>
+    `;
+
+    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').send(layout('Docs', body));
+  });
+
   r.get('/login', optionalSession, async (req: Request, res: Response) => {
     if ((req as any).auth) {
       res.redirect('/app');
@@ -780,7 +824,7 @@ function appPage(username: string, projects: Array<{ slug: string; name: string 
 
   return layout(
     'App',
-    `<div class="card">\n      <h1>Projects</h1>\n      <div class="muted">Logged in as ${username}</div>\n      <form method="post" action="/logout" style="margin-top:10px">\n        <button type="submit">Logout</button>\n      </form>\n      <div class="nav" style="margin-top:14px">${list || '<span class="muted">No projects yet</span>'}</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Invite</h1>\n      <div class="muted">Creates a 7-day invite link.</div>\n      <form method="post" action="/app/invites" style="margin-top:12px">\n        <button type="submit">Create Invite Link</button>\n      </form>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Project</h1>\n      <form method="post" action="/app/projects">\n        <div class="row">\n          <div>\n            <label>Slug</label>\n            <input name="slug" placeholder="my-tool" />\n          </div>\n          <div>\n            <label>Name</label>\n            <input name="name" placeholder="My Tool" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create</button>\n        </div>\n      </form>\n    </div>`,
+    `<div class="card">\n      <h1>Projects</h1>\n      <div class="muted">Logged in as ${username}</div>\n      <form method="post" action="/logout" style="margin-top:10px">\n        <button type="submit">Logout</button>\n      </form>\n      <div class="nav" style="margin-top:14px">${list || '<span class="muted">No projects yet</span>'}</div>\n      <div class="muted" style="margin-top:12px"><a href="/docs">Open Docs</a></div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Invite</h1>\n      <div class="muted">Creates a 7-day invite link.</div>\n      <form method="post" action="/app/invites" style="margin-top:12px">\n        <button type="submit">Create Invite Link</button>\n      </form>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Project</h1>\n      <form method="post" action="/app/projects">\n        <div class="row">\n          <div>\n            <label>Slug</label>\n            <input name="slug" placeholder="my-tool" />\n          </div>\n          <div>\n            <label>Name</label>\n            <input name="name" placeholder="My Tool" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create</button>\n        </div>\n      </form>\n    </div>`,
   );
 }
 
