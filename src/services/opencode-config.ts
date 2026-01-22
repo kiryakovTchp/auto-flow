@@ -4,7 +4,7 @@ export async function getOpenCodeLaunchConfig(): Promise<{ workdir: string | nul
   const cfg = await getRuntimeConfig();
   const workdir = cfg.OPENCODE_WORKDIR;
 
-  // MVP defaults:
+  // Defaults:
   // - mode: github-issue-command (agent listens to GitHub)
   // - launch command: just run `opencode` in that repo
   const command = 'opencode';

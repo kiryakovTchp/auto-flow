@@ -13,7 +13,7 @@ export async function reconcileProject(params: { projectId: string }): Promise<v
 
   const asana = new AsanaClient(asanaPat);
 
-  // MVP reconciliation: if we're waiting for CI but missed workflow_run,
+  // Reconciliation: if we're waiting for CI but missed workflow_run,
   // query GitHub checks for merge commit SHA and finalize.
   const waiting = await listTasksByProject(params.projectId, 'WAITING_CI');
   for (const t of waiting) {

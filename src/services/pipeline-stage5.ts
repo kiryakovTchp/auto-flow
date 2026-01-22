@@ -197,7 +197,7 @@ export async function processAsanaTaskStage5(params: {
   }
 
   // Resolve repo from enum option name.
-  // MVP rule: option name must match one of configured repos "owner/repo".
+  // Rule: option name must match one of configured repos "owner/repo".
   if (!repoName) {
     if (row?.id) {
       await insertTaskEvent({

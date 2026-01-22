@@ -226,7 +226,7 @@ export function adminUiRouter(): Router {
           <div>
             <label>Mode</label>
             <input id="opencode_mode" value="${escapeHtml(cfg.OPENCODE_MODE ?? 'github-issue-command')}" placeholder="github-issue-command" />
-            <div class="hint">MVP: orchestrator triggers OpenCode via GitHub issue command.</div>
+            <div class="hint">Orchestrator triggers OpenCode via GitHub issue command.</div>
           </div>
           <div>
             <label>Endpoint (optional)</label>

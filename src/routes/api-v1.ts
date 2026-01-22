@@ -95,35 +95,197 @@ export function apiV1Router(): Router {
   const r = Router();
 
   r.get('/openapi.json', async (_req: Request, res: Response) => {
+    const baseUrl = String(process.env.PUBLIC_BASE_URL ?? `http://localhost:${process.env.PORT ?? '3000'}`);
+
+    const slugParam = {
+      name: 'slug',
+      in: 'path',
+      required: true,
+      schema: { type: 'string' },
+    };
+
+    const idParam = {
+      name: 'id',
+      in: 'path',
+      required: true,
+      schema: { type: 'string' },
+    };
+
     res.status(200).json({
       openapi: '3.0.0',
       info: {
         title: 'auto-flow API',
         version: '1.0.0',
       },
+      servers: [{ url: baseUrl }],
+      components: {
+        securitySchemes: {
+          bearerAuth: { type: 'http', scheme: 'bearer' },
+        },
+      },
+      security: [{ bearerAuth: [] }],
       paths: {
-        '/api/v1/projects/{slug}/summary': { get: {} },
-        '/api/v1/projects/{slug}/settings': { get: {}, put: {} },
-        '/api/v1/projects/{slug}/tasks': { get: {} },
-        '/api/v1/projects/{slug}/tasks/{id}': { get: {} },
-        '/api/v1/projects/{slug}/tasks/{id}/events': { get: {} },
-        '/api/v1/projects/{slug}/tasks/{id}/actions/retry': { post: {} },
-        '/api/v1/projects/{slug}/tasks/{id}/actions/resync': { post: {} },
-        '/api/v1/projects/{slug}/tasks/{id}/actions/note': { post: {} },
-        '/api/v1/projects/{slug}/tasks/{id}/actions/change-repo': { post: {} },
-        '/api/v1/projects/{slug}/tasks/{id}/actions/force-pr': { post: {} },
-        '/api/v1/projects/{slug}/links': { get: {}, post: {} },
-        '/api/v1/projects/{slug}/links/{id}': { delete: {} },
-        '/api/v1/projects/{slug}/contacts': { get: {}, post: {} },
-        '/api/v1/projects/{slug}/contacts/{id}': { delete: {} },
-        '/api/v1/projects/{slug}/repos': { get: {}, post: {}, delete: {} },
-        '/api/v1/projects/{slug}/repos/default': { post: {} },
-        '/api/v1/projects/{slug}/asana-projects': { get: {}, post: {}, delete: {} },
-        '/api/v1/projects/{slug}/funnel': { get: {} },
-        '/api/v1/projects/{slug}/lead-time': { get: {} },
-        '/api/v1/projects/{slug}/failures': { get: {} },
-        '/api/v1/projects/{slug}/webhooks/health': { get: {} },
-        '/api/v1/projects/{slug}/jobs/health': { get: {} },
+        '/api/v1/projects/{slug}/summary': {
+          get: {
+            summary: 'Project summary',
+            tags: ['analytics'],
+            parameters: [slugParam],
+            responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' }, 403: { description: 'Forbidden' } },
+          },
+        },
+        '/api/v1/projects/{slug}/settings': {
+          get: {
+            summary: 'Get project settings',
+            tags: ['settings'],
+            parameters: [slugParam],
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks': {
+          get: {
+            summary: 'List tasks',
+            tags: ['tasks'],
+            parameters: [slugParam],
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks/{id}': {
+          get: {
+            summary: 'Get task',
+            tags: ['tasks'],
+            parameters: [slugParam, idParam],
+            responses: { 200: { description: 'OK' }, 404: { description: 'Not found' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks/{id}/events': {
+          get: {
+            summary: 'List task events',
+            tags: ['events'],
+            parameters: [slugParam, idParam],
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks/{id}/actions/retry': {
+          post: {
+            summary: 'Retry pipeline',
+            tags: ['actions'],
+            parameters: [slugParam, idParam],
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks/{id}/actions/resync': {
+          post: {
+            summary: 'Re-sync from Asana',
+            tags: ['actions'],
+            parameters: [slugParam, idParam],
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks/{id}/actions/note': {
+          post: {
+            summary: 'Post note to Asana + timeline',
+            tags: ['actions'],
+            parameters: [slugParam, idParam],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { note: { type: 'string' } },
+                    required: ['note'],
+                  },
+                },
+              },
+            },
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks/{id}/actions/change-repo': {
+          post: {
+            summary: 'Change repo (pre-issue only)',
+            tags: ['actions'],
+            parameters: [slugParam, idParam],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { repo: { type: 'string', example: 'owner/repo' } },
+                    required: ['repo'],
+                  },
+                },
+              },
+            },
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/tasks/{id}/actions/force-pr': {
+          post: {
+            summary: 'Force link PR by number/url',
+            tags: ['actions'],
+            parameters: [slugParam, idParam],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      pr: { type: 'string' },
+                      repo: { type: 'string', nullable: true, description: 'Optional owner/repo' },
+                    },
+                    required: ['pr'],
+                  },
+                },
+              },
+            },
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+        '/api/v1/projects/{slug}/links': {
+          get: { summary: 'List links', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+          post: { summary: 'Add link', tags: ['settings'], parameters: [slugParam], responses: { 201: { description: 'Created' } } },
+        },
+        '/api/v1/projects/{slug}/links/{id}': {
+          delete: { summary: 'Delete link', tags: ['settings'], parameters: [slugParam, idParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/contacts': {
+          get: { summary: 'List contacts', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+          post: { summary: 'Add contact', tags: ['settings'], parameters: [slugParam], responses: { 201: { description: 'Created' } } },
+        },
+        '/api/v1/projects/{slug}/contacts/{id}': {
+          delete: { summary: 'Delete contact', tags: ['settings'], parameters: [slugParam, idParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/repos': {
+          get: { summary: 'List repos', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+          post: { summary: 'Add repo', tags: ['settings'], parameters: [slugParam], responses: { 201: { description: 'Created' } } },
+          delete: { summary: 'Delete repo', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/repos/default': {
+          post: { summary: 'Set default repo', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/asana-projects': {
+          get: { summary: 'List Asana projects', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+          post: { summary: 'Add Asana project', tags: ['settings'], parameters: [slugParam], responses: { 201: { description: 'Created' } } },
+          delete: { summary: 'Delete Asana project', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/funnel': {
+          get: { summary: 'Conversion funnel', tags: ['analytics'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/lead-time': {
+          get: { summary: 'Lead time (p50/p90)', tags: ['analytics'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/failures': {
+          get: { summary: 'Failures by reason', tags: ['analytics'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/webhooks/health': {
+          get: { summary: 'Webhook health', tags: ['health'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/jobs/health': {
+          get: { summary: 'Queue health', tags: ['health'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
       },
     });
   });

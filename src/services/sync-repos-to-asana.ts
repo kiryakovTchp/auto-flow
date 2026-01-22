@@ -13,7 +13,7 @@ export async function syncReposToAsanaRepoField(params: { projectId: string }): 
   const repos = await listProjectGithubRepos(params.projectId);
 
   let added = 0;
-  // MVP: we attempt to add enum options by name "owner/repo".
+  // We attempt to add enum options by name "owner/repo".
   for (const r of repos) {
     const optionName = `${r.owner}/${r.repo}`;
     try {

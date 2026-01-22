@@ -1,9 +1,9 @@
-# Set DOMAIN and PUBLIC_BASE_URL in deploy/.env
+# Set DOMAIN and ACME_EMAIL in deploy/*.env
 {
-  email you@example.com
+  email {$ACME_EMAIL}
 }
 
-${DOMAIN} {
+{$DOMAIN} {
   encode gzip
 
   reverse_proxy app:3000

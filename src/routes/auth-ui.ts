@@ -780,7 +780,7 @@ function appPage(username: string, projects: Array<{ slug: string; name: string 
 
   return layout(
     'App',
-    `<div class="card">\n      <h1>Projects</h1>\n      <div class="muted">Logged in as ${username}</div>\n      <form method="post" action="/logout" style="margin-top:10px">\n        <button type="submit">Logout</button>\n      </form>\n      <div class="nav" style="margin-top:14px">${list || '<span class="muted">No projects yet</span>'}</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Invite</h1>\n      <div class="muted">Creates a 7-day invite link (MVP).</div>\n      <form method="post" action="/app/invites" style="margin-top:12px">\n        <button type="submit">Create Invite Link</button>\n      </form>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Project</h1>\n      <form method="post" action="/app/projects">\n        <div class="row">\n          <div>\n            <label>Slug</label>\n            <input name="slug" placeholder="my-tool" />\n          </div>\n          <div>\n            <label>Name</label>\n            <input name="name" placeholder="My Tool" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create</button>\n        </div>\n      </form>\n    </div>`,
+    `<div class="card">\n      <h1>Projects</h1>\n      <div class="muted">Logged in as ${username}</div>\n      <form method="post" action="/logout" style="margin-top:10px">\n        <button type="submit">Logout</button>\n      </form>\n      <div class="nav" style="margin-top:14px">${list || '<span class="muted">No projects yet</span>'}</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Invite</h1>\n      <div class="muted">Creates a 7-day invite link.</div>\n      <form method="post" action="/app/invites" style="margin-top:12px">\n        <button type="submit">Create Invite Link</button>\n      </form>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <h1>Create Project</h1>\n      <form method="post" action="/app/projects">\n        <div class="row">\n          <div>\n            <label>Slug</label>\n            <input name="slug" placeholder="my-tool" />\n          </div>\n          <div>\n            <label>Name</label>\n            <input name="name" placeholder="My Tool" />\n          </div>\n        </div>\n        <div style="margin-top:12px">\n          <button type="submit">Create</button>\n        </div>\n      </form>\n    </div>`,
   );
 }
 
@@ -797,19 +797,7 @@ function projectNav(p: { slug: string }, active: string): string {
     .join('')}</div>`;
 }
 
-function projectPage(p: { slug: string; name: string }): string {
-  return layout(
-    p.name,
-    `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}</div>\n      ${projectNav(p, 'home')}\n      <div class="muted">Stage 1 placeholder. Next stages add tasks list, integrations, and webhooks per project.</div>\n      <div style="margin-top:12px"><a href="/app">← Back to projects</a></div>\n    </div>`,
-  );
-}
 
-function projectSubPage(p: { slug: string; name: string }, active: string): string {
-  return layout(
-    `${p.name} - ${active}`,
-    `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/${active}</div>\n      ${projectNav(p, active)}\n      <div class="muted">Placeholder screen: ${active}.</div>\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
-  );
-}
 
 function projectSettingsPage(
   p: { slug: string; name: string },
@@ -878,7 +866,7 @@ function projectSettingsPage(
         </div>
       </div>
       <div style="margin-top:12px"><button type="submit">Save Asana Field Config</button></div>
-      <div class="muted" style="margin-top:8px">MVP: paste GIDs manually. Next: UI picker from Asana API.</div>
+      <div class="muted" style="margin-top:8px">Paste GIDs manually.</div>
     </form>
 
     <div class="muted" style="margin-top:16px">Asana status mapping (option name → ACTIVE/BLOCKED/CANCELLED):</div>
@@ -1103,17 +1091,6 @@ function projectSettingsPage(
   return layout(
     `${p.name} - settings`,
     `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/settings</div>\n      ${projectNav(p, 'settings')}\n      <div class="muted">Stage 2: edit project settings.</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${secretsBlock}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${asanaList}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${repoList}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${contactsBlock}\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      ${linksBlock}\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
-  );
-}
-
-function projectWebhooksPage(p: { slug: string; name: string }, githubUrl: string, asanaUrls: string): string {
-  const asanaBlock = asanaUrls
-    ? `<pre style="white-space:pre-wrap">${escapeHtml(asanaUrls)}</pre>`
-    : `<div class="muted">Add Asana project GIDs in Settings to see Asana webhook URLs.</div>`;
-
-  return layout(
-    `${p.name} - webhooks`,
-    `<div class="card">\n      <h1>${p.name}</h1>\n      <div class="muted">/p/${p.slug}/webhooks</div>\n      ${projectNav(p, 'webhooks')}\n      <div class="muted">Stage 3: per-project webhook endpoints. Setup/validation UI will be added next.</div>\n      <hr style="border:0;border-top:1px solid rgba(232,238,247,0.12);margin:16px 0" />\n      <div class="muted">GitHub webhook URL:</div>\n      <pre style="white-space:pre-wrap">${escapeHtml(githubUrl)}</pre>\n      <div class="muted" style="margin-top:12px">Asana webhook URL(s):</div>\n      ${asanaBlock}\n      <div class="muted" style="margin-top:12px">Validation: MVP is manual (GitHub Settings + Asana webhook setup). Auto-create is scheduled later.</div>\n      <div style="margin-top:12px"><a href="/p/${p.slug}">← Back</a></div>\n    </div>`,
   );
 }
 

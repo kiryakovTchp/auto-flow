@@ -17,6 +17,7 @@ cp deploy/.env.example deploy/.env
 
 Set:
 - `DOMAIN`
+- `ACME_EMAIL` (used by Caddy for TLS)
 - `PUBLIC_BASE_URL`
 - `INIT_ADMIN_TOKEN` (one-time)
 - `PGPASSWORD` (do not keep default)

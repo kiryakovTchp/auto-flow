@@ -86,7 +86,7 @@ export function projectWebhooksUiRouter(): Router {
         filters: [
           { resource_type: 'task', action: 'added' },
           // Stage 5: react to AutoTask/repo/status custom field changes.
-          // MVP: subscribe to all task changes.
+          // Subscribe to all task changes.
           { resource_type: 'task', action: 'changed' },
         ],
       });
@@ -254,7 +254,7 @@ function webhooksPage(params: {
       </div>
     </form>
 
-    <div style="margin-top:12px" class="muted">Repo field helper (MVP): add enum options for each configured repo</div>
+    <div style="margin-top:12px" class="muted">Repo field helper: add enum options for each configured repo</div>
     <form method="post" action="/p/${escapeHtml(params.slug)}/webhooks/asana/sync-repos">
       <div style="margin-top:12px">
         <button type="submit">Sync repos to Asana Repo field</button>
@@ -263,7 +263,7 @@ function webhooksPage(params: {
     <div style="margin-top:12px" class="muted">Repo sync result:</div>
     <pre>${escapeHtml(params.repoSyncResult ?? 'Not run yet')}</pre>
 
-    <div style="margin-top:12px" class="muted">Validate GitHub webhooks (manual-only MVP):</div>
+    <div style="margin-top:12px" class="muted">Validate GitHub webhooks (manual):</div>
     <form method="post" action="/p/${escapeHtml(params.slug)}/webhooks/github/validate">
       <div style="margin-top:12px">
         <button type="submit">Validate GitHub Webhooks</button>
