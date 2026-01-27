@@ -5,6 +5,10 @@ Auto-Flow runs `opencode` directly on the server where Auto-Flow is deployed.
 
 ### 1) Install OpenCode CLI
 
+If you use the Docker deployment, the image already includes `opencode` and `git`.
+
+If you run on a host directly:
+
 ```
 curl -fsSL https://opencode.ai/install | bash
 ```
@@ -17,7 +21,7 @@ curl -fsSL https://opencode.ai/install | bash
 - Mode: `server-runner`
 - Model: `openai/gpt-4o-mini`
 - Workspace Root: `/var/lib/opencode/workspaces`
-- OpenAI API Key: stored in project settings (encrypted)
+- OAuth: connect via Integrations → OpenCode (server-managed OAuth)
 
 ## Alternative: GitHub Actions + self-hosted runner
 This uses the official OpenCode GitHub integration.

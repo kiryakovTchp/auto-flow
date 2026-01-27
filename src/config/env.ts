@@ -22,6 +22,13 @@ const envSchema = z.object({
 
   // Ops
   METRICS_TOKEN: z.string().optional(),
+
+  // OpenCode OAuth
+  OPENCODE_OAUTH_AUTH_URL: z.string().url().optional(),
+  OPENCODE_OAUTH_TOKEN_URL: z.string().url().optional(),
+  OPENCODE_OAUTH_CLIENT_ID: z.string().optional(),
+  OPENCODE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  OPENCODE_OAUTH_SCOPES: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

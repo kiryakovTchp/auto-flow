@@ -21,6 +21,7 @@ Set:
 - `PUBLIC_BASE_URL`
 - `INIT_ADMIN_TOKEN` (one-time)
 - `PGPASSWORD` (do not keep default)
+- `OPENCODE_OAUTH_*` (required for server-runner OAuth)
 
 2) Start services
 
@@ -43,6 +44,7 @@ Then set username/password.
 - Encryption master key is stored in a Docker volume mounted at `/app/data`.
 - SQL migrations are executed automatically on app start.
 - `/metrics` is protected by `METRICS_TOKEN` if set (Authorization: Bearer ...). If not set, it is only accessible from localhost.
+- For server-runner, set Workspace Root in project settings (e.g. `/var/lib/opencode/workspaces`).
 ## Staging + prod
 
 For two environments on the same VPS:

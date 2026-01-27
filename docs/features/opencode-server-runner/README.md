@@ -11,7 +11,7 @@ We support two modes:
 
 1) **server-runner** (preferred for full control)
    - Auto-Flow runs `opencode` directly on the server.
-   - Uses your OpenAI key stored in project settings.
+   - Uses OpenCode OAuth (server-managed) and passes `OPENAI_ACCESS_TOKEN` to the CLI.
    - No GitHub Actions required.
 
 2) **github-actions** (alternative)
@@ -43,6 +43,7 @@ Source:
 server-runner:
 - Auto-Flow task events + Asana comments.
 - Server logs from Auto-Flow process.
+- Project UI: Integrations → OpenCode (agent runs + logs).
 
 github-actions:
 - GitHub Actions logs (job `opencode`).

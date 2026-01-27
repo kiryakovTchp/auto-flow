@@ -8,9 +8,9 @@
 
 - Asana (таск-трекер)
 - GitHub (контроль версий и CI/CD)
-- OpenCode (AI-агент, исполняется на стороне клиента)
+- OpenCode (AI-агент, может исполняться на сервере оркестратора или на клиенте)
 
-Оркестратор **не вызывает AI напрямую**, а только обменивается событиями между Asana и GitHub. OpenCode слушает GitHub и работает на клиентской машине.
+Оркестратор **не вызывает AI напрямую**, а координирует события между Asana и GitHub и может запускать OpenCode CLI в режиме server-runner. OpenCode также может работать на клиентской машине.
 
 ---
 
@@ -31,7 +31,7 @@
 2. Оркестратор получает webhook-событие, вытягивает полные данные задачи
 3. Оркестратор формирует TaskSpec в Markdown
 4. Оркестратор создаёт **GitHub Issue**, вставляет туда TaskSpec и команду `/opencode implement`
-5. Агент OpenCode на клиенте читает Issue, выполняет задачу и создаёт PR
+5. Агент OpenCode (server-runner или клиент) читает Issue, выполняет задачу и создаёт PR
 6. Оркестратор отслеживает появление PR, merge и CI-статус, и обновляет Asana
 
 ### 3.2. Состояния задачи
@@ -127,7 +127,7 @@ TaskSpec вставляется как тело GitHub issue. В конец до
 
 - `ASANA_TOKEN`: Personal Access Token Asana
 - `GITHUB_TOKEN`: PAT GitHub с правами repo, issues
-- `OPENAI_API_KEY`: (если используется AI для генерации TaskSpec)
+- `OPENCODE_OAUTH_*`: OAuth конфиг для подключения OpenCode (server-runner)
 - `DATABASE_URL`: строка подключения PostgreSQL
 
 ### 6.2. Внешние зависимости

@@ -3,18 +3,28 @@ import { getRuntimeConfig } from './secure-config';
 
 export type OpenCodeMode = 'github-actions' | 'server-runner' | 'off';
 
+export type OpenCodeWriteMode = 'pr_only' | 'working_tree' | 'read_only';
+
+export type OpenCodePolicyConfig = {
+  writeMode: OpenCodeWriteMode;
+  denyPaths: string[];
+  maxFilesChanged: number | null;
+};
+
 export type OpenCodeProjectConfig = {
   mode: OpenCodeMode;
   command: string;
   prTimeoutMinutes: number;
   model: string;
   workspaceRoot: string | null;
+  policy: OpenCodePolicyConfig;
 };
 
 const DEFAULT_OPENCODE_COMMAND = '/opencode implement';
 const DEFAULT_OPENCODE_MODE: OpenCodeMode = 'github-actions';
 const DEFAULT_PR_TIMEOUT_MINUTES = 60;
 const DEFAULT_OPENCODE_MODEL = 'openai/gpt-4o-mini';
+const DEFAULT_WRITE_MODE: OpenCodeWriteMode = 'pr_only';
 
 export function normalizeOpenCodeMode(raw: string | null | undefined): OpenCodeMode | null {
   const v = String(raw ?? '').trim().toLowerCase();
@@ -48,6 +58,32 @@ export function normalizeOpenCodeCommand(raw: string | null | undefined): string
   return DEFAULT_OPENCODE_COMMAND;
 }
 
+export function normalizeWriteMode(raw: string | null | undefined): OpenCodeWriteMode | null {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (!v) return null;
+  if (['pr_only', 'pr-only', 'pr', 'pull-request'].includes(v)) return 'pr_only';
+  if (['working_tree', 'working-tree', 'working', 'local', 'worktree'].includes(v)) return 'working_tree';
+  if (['read_only', 'read-only', 'readonly', 'read'].includes(v)) return 'read_only';
+  return null;
+}
+
+export function normalizeMaxFilesChanged(raw: string | null | undefined): number | null {
+  const v = String(raw ?? '').trim();
+  if (!v) return null;
+  const n = Number.parseInt(v, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(n, 1000);
+}
+
+export function normalizeDenyPaths(raw: string | null | undefined): string[] {
+  const v = String(raw ?? '').trim();
+  if (!v) return [];
+  return v
+    .split(/[\n,]/g)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
 export function normalizeTimeoutMinutes(raw: string | null | undefined): number {
   const n = Number.parseInt(String(raw ?? '').trim(), 10);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_PR_TIMEOUT_MINUTES;
@@ -55,15 +91,18 @@ export function normalizeTimeoutMinutes(raw: string | null | undefined): number 
 }
 
 export async function getOpenCodeProjectConfig(projectId?: string | null): Promise<OpenCodeProjectConfig> {
-  const [modeRaw, commandRaw, timeoutRaw, modelRaw, workspaceRootRaw] = projectId
+  const [modeRaw, commandRaw, timeoutRaw, modelRaw, workspaceRootRaw, writeModeRaw, denyPathsRaw, maxFilesRaw] = projectId
     ? await Promise.all([
         getProjectSecretPlain(projectId, 'OPENCODE_MODE'),
         getProjectSecretPlain(projectId, 'OPENCODE_COMMAND'),
         getProjectSecretPlain(projectId, 'OPENCODE_PR_TIMEOUT_MINUTES'),
         getProjectSecretPlain(projectId, 'OPENCODE_MODEL'),
         getProjectSecretPlain(projectId, 'OPENCODE_WORKSPACE_ROOT'),
+        getProjectSecretPlain(projectId, 'OPENCODE_POLICY_WRITE_MODE'),
+        getProjectSecretPlain(projectId, 'OPENCODE_POLICY_DENY_PATHS'),
+        getProjectSecretPlain(projectId, 'OPENCODE_POLICY_MAX_FILES_CHANGED'),
       ])
-    : [null, null, null, null, null];
+    : [null, null, null, null, null, null, null, null];
 
   const runtime = await getRuntimeConfig();
   const mode =
@@ -78,7 +117,18 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
   const model = String(modelRaw ?? '').trim() || DEFAULT_OPENCODE_MODEL;
   const workspaceRoot = String(workspaceRootRaw ?? '').trim() || null;
 
-  return { mode, command, prTimeoutMinutes, model, workspaceRoot };
+  const writeMode = normalizeWriteMode(writeModeRaw) ?? DEFAULT_WRITE_MODE;
+  const denyPaths = normalizeDenyPaths(denyPathsRaw);
+  const maxFilesChanged = normalizeMaxFilesChanged(maxFilesRaw);
+
+  return {
+    mode,
+    command,
+    prTimeoutMinutes,
+    model,
+    workspaceRoot,
+    policy: { writeMode, denyPaths, maxFilesChanged },
+  };
 }
 
 export function buildIssueCreatedAsanaComment(params: { issueUrl: string; command?: string | null; triggered: boolean }): string {
@@ -101,7 +151,7 @@ export function buildOpenCodeTimeoutComment(params: { issueUrl?: string | null; 
 
   if (params.mode === 'server-runner') {
     lines.push('Check Auto-Flow server logs for OpenCode runner output.');
-    lines.push('Verify OpenCode CLI is installed and OPENAI_API_KEY is configured.');
+    lines.push('Verify OpenCode CLI is installed and OAuth is connected for this project.');
   } else {
     lines.push('Check GitHub Actions logs for the opencode workflow.');
   }

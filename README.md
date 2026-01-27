@@ -14,7 +14,7 @@ The server **does not run AI** and does not execute code. It only:
 - tracks PR + GitHub Actions results
 - updates the source task in Asana
 
-OpenCode runs on a developer machine and reacts to a GitHub Issue comment like:
+OpenCode can run on a developer machine or via the server-runner. It reacts to a GitHub Issue comment like:
 
 ```
 /opencode implement
@@ -26,7 +26,7 @@ OpenCode runs on a developer machine and reacts to a GitHub Issue comment like:
 2) Auto-Flow receives an Asana webhook and fetches full task details via Asana API.
 3) Auto-Flow generates a **TaskSpec** (Markdown) and stores a versioned copy in Postgres.
 4) Auto-Flow creates a **GitHub Issue** with TaskSpec + `/opencode implement`.
-5) OpenCode (client-side) picks up the Issue and creates a PR.
+5) OpenCode (server-runner or client-side) picks up the Issue and creates a PR.
 6) Auto-Flow receives GitHub webhooks for PR and GitHub Actions (`workflow_run`).
 7) When **PR merged + CI success** → task becomes `DEPLOYED` (and the Asana task is marked complete).
 

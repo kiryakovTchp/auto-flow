@@ -30,6 +30,10 @@ import { listRepoMap } from '../db/repo-map';
 import { attachPrToTaskById, updateTaskStatusById } from '../db/tasks-v2';
 import { setMergeCommitShaByTaskId } from '../db/tasks-extra';
 import { finalizeTaskIfReady } from '../services/finalize';
+import { getAgentRunById, listAgentRunLogs, listAgentRunsByProject } from '../db/agent-runs';
+import { getIntegrationByProjectType } from '../db/integrations';
+import { getOauthCredentials } from '../db/oauth-credentials';
+import { disconnectOpenCodeIntegration, startOpenCodeOauth } from '../services/opencode-oauth';
 
 type AuthedReq = Request & { apiAuth?: { projectId: string; tokenId: string } };
 
@@ -64,6 +68,24 @@ function parseDateParam(v: unknown): Date | null {
   if (!s) return null;
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function resolveBaseUrl(req: Request): string {
+  const envBase = String(process.env.PUBLIC_BASE_URL ?? '').trim();
+  return envBase || String(req.protocol + '://' + req.get('host'));
+}
+
+function ensureSafeReturnUrl(raw: string, baseUrl: string): string {
+  if (!raw) return '/app';
+  if (raw.startsWith('/')) return raw;
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(raw, base);
+    if (url.origin !== base.origin) return '/app';
+    return `${url.pathname}${url.search}${url.hash}` || '/app';
+  } catch {
+    return '/app';
+  }
 }
 
 async function requireProjectToken(req: AuthedReq, res: Response, next: NextFunction): Promise<void> {
@@ -116,6 +138,14 @@ export function apiV1Router(): Router {
       info: {
         title: 'auto-flow API',
         version: '1.0.0',
+        description: [
+          'Auto-Flow API.',
+          '',
+          'Policies',
+          '- write_mode: pr_only | working_tree | read_only (server-runner supports pr_only)',
+          '- deny_paths: newline/comma-separated glob patterns',
+          '- max_files_changed: integer limit or null',
+        ].join('\n'),
       },
       servers: [{ url: baseUrl }],
       components: {
@@ -265,6 +295,60 @@ export function apiV1Router(): Router {
         },
         '/api/v1/projects/{slug}/repos/default': {
           post: { summary: 'Set default repo', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
+        },
+        '/api/v1/projects/{slug}/integrations/opencode': {
+          get: {
+            summary: 'Get OpenCode integration status',
+            tags: ['integrations'],
+            parameters: [slugParam],
+            responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' } },
+          },
+        },
+        '/api/v1/projects/{slug}/integrations/opencode/oauth/start': {
+          post: {
+            summary: 'Start OpenCode OAuth',
+            tags: ['integrations'],
+            parameters: [slugParam],
+            requestBody: {
+              required: false,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      redirect_mode: { type: 'string', example: 'server' },
+                      return_url: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' } },
+          },
+        },
+        '/api/v1/projects/{slug}/integrations/opencode/disconnect': {
+          post: {
+            summary: 'Disconnect OpenCode integration',
+            tags: ['integrations'],
+            parameters: [slugParam],
+            responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' } },
+          },
+        },
+        '/api/v1/projects/{slug}/opencode/runs': {
+          get: {
+            summary: 'List OpenCode agent runs',
+            tags: ['opencode'],
+            parameters: [slugParam],
+            responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' } },
+          },
+        },
+        '/api/v1/projects/{slug}/opencode/runs/{id}': {
+          get: {
+            summary: 'Get OpenCode agent run + logs',
+            tags: ['opencode'],
+            parameters: [slugParam, idParam],
+            responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' }, 404: { description: 'Not found' } },
+          },
         },
         '/api/v1/projects/{slug}/asana-projects': {
           get: { summary: 'List Asana projects', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
@@ -589,6 +673,118 @@ export function apiV1Router(): Router {
       }
       await deleteProjectContact({ projectId: p.id, id: String(req.params.id) });
       res.status(200).json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.get('/projects/:slug/integrations/opencode', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const integration = await getIntegrationByProjectType(p.id, 'opencode');
+      if (!integration) {
+        res.status(200).json({ status: 'disabled', connected_at: null, expires_at: null, scopes: [], last_error: null });
+        return;
+      }
+
+      const creds = await getOauthCredentials({ integrationId: integration.id, provider: 'openai' });
+      res.status(200).json({
+        status: integration.status,
+        connected_at: integration.connected_at,
+        expires_at: creds?.expires_at ?? null,
+        scopes: creds?.scopes ? String(creds.scopes).split(/\s+/).filter(Boolean) : [],
+        last_error: integration.last_error,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.post('/projects/:slug/integrations/opencode/oauth/start', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const returnUrlRaw = String((req.body as any)?.return_url ?? '').trim();
+      const fallbackUrl = `/p/${encodeURIComponent(p.slug)}/integrations/opencode`;
+      const returnUrl = ensureSafeReturnUrl(returnUrlRaw || fallbackUrl, resolveBaseUrl(req));
+      const redirectBaseUrl = resolveBaseUrl(req);
+
+      const result = await startOpenCodeOauth({
+        projectId: p.id,
+        userId: null,
+        returnUrl,
+        redirectBaseUrl,
+      });
+
+      res.status(200).json({ authorize_url: result.authorizeUrl, state: result.state, expires_at: result.expiresAt.toISOString() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.post('/projects/:slug/integrations/opencode/disconnect', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      await disconnectOpenCodeIntegration({ projectId: p.id });
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.get('/projects/:slug/opencode/runs', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const limitRaw = Number.parseInt(String(req.query.limit ?? '').trim(), 10);
+      const runs = await listAgentRunsByProject({ projectId: p.id, limit: Number.isFinite(limitRaw) ? limitRaw : 50 });
+      res.status(200).json({ runs });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.get('/projects/:slug/opencode/runs/:id', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const runId = String(req.params.id);
+      const run = await getAgentRunById({ projectId: p.id, runId });
+      if (!run) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+
+      const limitRaw = Number.parseInt(String(req.query.limit ?? '').trim(), 10);
+      const logs = await listAgentRunLogs({ runId, limit: Number.isFinite(limitRaw) ? limitRaw : 200 });
+      res.status(200).json({ run, logs });
     } catch (err) {
       next(err);
     }

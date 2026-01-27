@@ -4,19 +4,24 @@ This is the setup for "PR only": OpenCode creates a PR, humans merge.
 
 ## 1) Auto-Flow project
 1) Configure Asana + GitHub tokens in Auto-Flow project settings.
-2) Configure Asana custom fields:
+2) Configure OpenCode OAuth in server environment (`OPENCODE_OAUTH_*`).
+3) Configure Asana custom fields:
    - AutoTask checkbox field
    - Repo enum field
    - Status enum field
-3) Configure repo list / default repo.
-4) Configure OpenCode Runner settings:
-   - Mode: `server-runner` (or `github-actions` if you want Actions)
-   - Trigger comment: `/opencode implement` (Actions only)
-   - PR timeout (minutes): default 60
-   - Model: `openai/gpt-4o-mini` (or your choice)
-   - Workspace Root: `/var/lib/opencode/workspaces`
-   - OpenAI API Key (for server-runner)
-5) Configure per-project webhooks:
+4) Configure repo list / default repo.
+5) Configure OpenCode Runner settings:
+    - Mode: `server-runner` (or `github-actions` if you want Actions)
+    - Trigger comment: `/opencode implement` (Actions only)
+    - PR timeout (minutes): default 60
+    - Model: `openai/gpt-4o-mini` (or your choice)
+    - Workspace Root: `/var/lib/opencode/workspaces`
+    - OAuth is configured via Integrations → OpenCode (server-managed OAuth)
+    - Policies:
+      - Write mode: `pr_only`
+      - Max files changed (optional)
+      - Deny paths (optional, glob patterns)
+6) Configure per-project webhooks:
    - Asana webhook: `/webhooks/asana/:projectId`
    - GitHub webhook: `/webhooks/github/:projectId`
 
@@ -27,7 +32,14 @@ This is the setup for "PR only": OpenCode creates a PR, humans merge.
 curl -fsSL https://opencode.ai/install | bash
 ```
 
+If you use the Docker deployment, the image already includes `opencode` and `git`.
+
 2) Ensure `opencode` is in PATH for the Auto-Flow service user.
+
+## 2.1) Connect OpenCode OAuth
+1) Open the project UI.
+2) Go to Integrations → OpenCode.
+3) Click Connect and complete OAuth in the browser.
 
 ## 3) GitHub Actions setup (only for github-actions mode)
 OpenCode's official GitHub integration runs inside GitHub Actions.

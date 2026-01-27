@@ -11,6 +11,9 @@ export type ProjectSecretKey =
   | 'OPENCODE_PR_TIMEOUT_MINUTES'
   | 'OPENCODE_MODEL'
   | 'OPENCODE_WORKSPACE_ROOT'
+  | 'OPENCODE_POLICY_WRITE_MODE'
+  | 'OPENCODE_POLICY_DENY_PATHS'
+  | 'OPENCODE_POLICY_MAX_FILES_CHANGED'
   | 'OPENAI_API_KEY';
 
 export async function upsertProjectSecret(params: {

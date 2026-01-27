@@ -213,6 +213,7 @@ function webhooksPage(params: {
       { key: 'home', label: 'Home', href: `/p/${p.slug}` },
       { key: 'settings', label: t(lang, 'screens.settings.title'), href: `/p/${p.slug}/settings` },
       { key: 'webhooks', label: t(lang, 'screens.webhooks.title'), href: `/p/${p.slug}/webhooks` },
+      { key: 'integrations', label: t(lang, 'screens.integrations.title'), href: `/p/${p.slug}/integrations/opencode` },
       { key: 'api', label: t(lang, 'screens.api.title'), href: `/p/${p.slug}/api` },
       { key: 'knowledge', label: t(lang, 'screens.knowledge.title'), href: `/p/${p.slug}/knowledge` },
     ],

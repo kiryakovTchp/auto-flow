@@ -15,3 +15,11 @@ Store secrets in:
 
 - `GITHUB_TOKEN`: <paste here>
 - `GITHUB_WEBHOOK_SECRET`: <paste here>
+
+## OpenCode OAuth (server-managed)
+
+- `OPENCODE_OAUTH_AUTH_URL`: <provider authorize URL>
+- `OPENCODE_OAUTH_TOKEN_URL`: <provider token URL>
+- `OPENCODE_OAUTH_CLIENT_ID`: <client id>
+- `OPENCODE_OAUTH_CLIENT_SECRET`: <client secret (optional)>
+- `OPENCODE_OAUTH_SCOPES`: <space-separated scopes>

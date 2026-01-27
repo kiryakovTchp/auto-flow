@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 import { getLatestTaskSpec } from '../db/taskspecs';
+import { createAgentRun, insertAgentRunLog, updateAgentRun } from '../db/agent-runs';
 import { insertTaskEvent } from '../db/task-events';
 import {
   attachPrToTaskById,
@@ -16,7 +17,8 @@ import { GithubClient } from '../integrations/github';
 import { logger } from '../logger/logger';
 import { getProjectSecretPlain } from './project-secure-config';
 import { buildProjectContextMarkdown } from './project-context';
-import { buildPrLinkedAsanaComment, getOpenCodeProjectConfig } from './opencode-runner';
+import { buildPrLinkedAsanaComment, getOpenCodeProjectConfig, type OpenCodePolicyConfig } from './opencode-runner';
+import { getOpenCodeAccessToken } from './opencode-oauth';
 
 const MAX_OUTPUT_CHARS = 20_000;
 const DEFAULT_COMMIT_PREFIX = 'opencode:';
@@ -30,15 +32,22 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
   const opencodeCfg = await getOpenCodeProjectConfig(params.projectId);
   if (opencodeCfg.mode !== 'server-runner') return;
 
+  if (opencodeCfg.policy.writeMode !== 'pr_only') {
+    await markTaskFailed(params.projectId, task, `OpenCode policy write_mode=${opencodeCfg.policy.writeMode} is not supported by server-runner`);
+    return;
+  }
+
   const workspaceRoot = opencodeCfg.workspaceRoot;
   if (!workspaceRoot) {
     await markTaskFailed(params.projectId, task, 'Missing OPENCODE_WORKSPACE_ROOT');
     return;
   }
 
-  const openAiKey = await getProjectSecretPlain(params.projectId, 'OPENAI_API_KEY');
-  if (!openAiKey) {
-    await markTaskFailed(params.projectId, task, 'Missing OPENAI_API_KEY');
+  let accessToken: string;
+  try {
+    accessToken = await getOpenCodeAccessToken(params.projectId);
+  } catch (err: any) {
+    await markTaskFailed(params.projectId, task, `OpenCode not connected: ${String(err?.message ?? err)}`);
     return;
   }
 
@@ -73,6 +82,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
   const workspaceBase = path.join(workspaceRoot, `${repoOwner}-${repoName}`);
   const workspaceDir = path.join(workspaceBase, `issue-${issueNumber}-${runId}`);
 
+  let agentRunId: string | null = null;
   try {
     await fs.promises.mkdir(workspaceBase, { recursive: true });
 
@@ -93,25 +103,60 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       repo: `${repoOwner}/${repoName}`,
     });
 
+    const run = await createAgentRun({
+      projectId: params.projectId,
+      agentType: 'opencode',
+      triggeredByUserId: null,
+      status: 'running',
+      inputSpec: {
+        taskId: task.id,
+        issueNumber,
+        repo: `${repoOwner}/${repoName}`,
+        mode: opencodeCfg.mode,
+      },
+    });
+    agentRunId = run.id;
+    await updateAgentRun({ runId: run.id, startedAt: new Date() });
+
     const opencodeArgs = ['run'];
     if (opencodeCfg.model) {
       opencodeArgs.push('--model', opencodeCfg.model);
     }
     opencodeArgs.push(prompt);
 
-    await runCommand('opencode', opencodeArgs, {
+    const opencodeResult = await runCommand('opencode', opencodeArgs, {
       cwd: workspaceDir,
       env: {
-        OPENAI_API_KEY: openAiKey,
+        OPENAI_ACCESS_TOKEN: accessToken,
         OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: 'allow' }),
         OPENCODE_DISABLE_AUTOUPDATE: '1',
         OPENCODE_DISABLE_PRUNE: '1',
       },
     });
 
+    if (agentRunId) {
+      if (opencodeResult.stdout.trim()) {
+        await insertAgentRunLog({ runId: agentRunId, stream: 'stdout', message: opencodeResult.stdout });
+      }
+      if (opencodeResult.stderr.trim()) {
+        await insertAgentRunLog({ runId: agentRunId, stream: 'stderr', message: opencodeResult.stderr });
+      }
+    }
+
     const status = await runCommand('git', ['status', '--porcelain'], { cwd: workspaceDir });
-    if (!status.stdout.trim()) {
+    const changedFiles = parseGitStatusFiles(status.stdout);
+    if (!changedFiles.length) {
       await markTaskFailed(params.projectId, task, 'OpenCode produced no changes');
+      return;
+    }
+
+    const policyError = evaluatePolicies(changedFiles, opencodeCfg.policy);
+    if (policyError) {
+      if (agentRunId) {
+        await insertAgentRunLog({ runId: agentRunId, stream: 'system', message: policyError });
+        await updateAgentRun({ runId: agentRunId, status: 'failed', outputSummary: policyError, finishedAt: new Date() });
+      }
+      await markTaskFailed(params.projectId, task, policyError);
       return;
     }
 
@@ -133,6 +178,15 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
 
     await attachPrToTaskById({ taskId: task.id, prNumber: pr.number, prUrl: pr.html_url, sha: pr.head_sha });
     await updateTaskStatusById(task.id, 'PR_CREATED');
+
+    if (agentRunId) {
+      await updateAgentRun({
+        runId: agentRunId,
+        status: 'success',
+        outputSummary: `PR created: ${pr.html_url}`,
+        finishedAt: new Date(),
+      });
+    }
 
     await insertTaskEvent({
       taskId: task.id,
@@ -177,6 +231,10 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     }
   } catch (err: any) {
     logger.error({ err, taskId: task.id }, 'OpenCode server runner failed');
+    if (agentRunId) {
+      await insertAgentRunLog({ runId: agentRunId, stream: 'system', message: String(err?.message ?? err) });
+      await updateAgentRun({ runId: agentRunId, status: 'failed', outputSummary: String(err?.message ?? err), finishedAt: new Date() });
+    }
     await markTaskFailed(params.projectId, task, String(err?.message ?? err));
   }
 }
@@ -280,6 +338,55 @@ function buildCommitMessage(title: string | null, issueNumber: number): string {
   const base = title?.trim() ? title.trim() : `Issue #${issueNumber}`;
   const trimmed = base.length > 60 ? `${base.slice(0, 57)}...` : base;
   return `${DEFAULT_COMMIT_PREFIX} ${trimmed}`;
+}
+
+function parseGitStatusFiles(output: string): string[] {
+  const files: string[] = [];
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const raw = trimmed.length > 3 ? trimmed.slice(3).trim() : '';
+    if (!raw) continue;
+    const resolved = raw.includes(' -> ') ? raw.split(' -> ').pop() ?? raw : raw;
+    const normalized = normalizePath(resolved);
+    if (normalized) files.push(normalized);
+  }
+  return Array.from(new Set(files));
+}
+
+function normalizePath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function globToRegExp(pattern: string): RegExp {
+  let p = normalizePath(pattern.trim());
+  if (!p) return /^$/;
+  if (p.startsWith('/')) p = p.slice(1);
+  if (!p.includes('/')) p = `**/${p}`;
+  if (p.endsWith('/')) p += '**';
+
+  const escaped = p.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  const withGlob = escaped
+    .replace(/\\\*\\\*/g, '.*')
+    .replace(/\\\*/g, '[^/]*');
+  return new RegExp(`^${withGlob}$`);
+}
+
+function evaluatePolicies(files: string[], policy: OpenCodePolicyConfig): string | null {
+  if (policy.maxFilesChanged != null && files.length > policy.maxFilesChanged) {
+    return `OpenCode policy violation: changed files (${files.length}) exceeds max_files_changed (${policy.maxFilesChanged}).`;
+  }
+
+  if (policy.denyPaths.length) {
+    const matchers = policy.denyPaths.map((p) => ({ pattern: p, regex: globToRegExp(p) }));
+    const matched = files.filter((file) => matchers.some((m) => m.regex.test(file)));
+    if (matched.length) {
+      const sample = matched.slice(0, 5).join(', ');
+      return `OpenCode policy violation: deny_paths matched (${matched.length}): ${sample}.`;
+    }
+  }
+
+  return null;
 }
 
 async function markTaskFailed(

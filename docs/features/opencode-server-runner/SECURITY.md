@@ -21,7 +21,13 @@ permissions:
 
 ## Secrets
 - github-actions: store LLM provider keys in GitHub Actions secrets.
-- server-runner: store LLM provider keys in Auto-Flow project secrets (encrypted).
+- server-runner: store OpenCode OAuth tokens in Auto-Flow (encrypted); CLI receives access token at runtime.
+
+## Policy gates
+- server-runner enforces policy checks before commit/PR:
+  - write_mode (must be pr_only)
+  - deny_paths (glob patterns)
+  - max_files_changed
 
 ## Repo allowlist
 - Only enable the OpenCode workflow in repos you actually want to automate.

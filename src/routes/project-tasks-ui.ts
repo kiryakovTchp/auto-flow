@@ -12,6 +12,8 @@ import { requireSession } from '../security/sessions';
 import { escapeHtml, pageShell, renderLanguageToggle, renderTabs, renderTopbar } from '../services/html';
 import { getLangFromRequest, t, type UiLang } from '../services/i18n';
 import { getProjectSecretPlain } from '../services/project-secure-config';
+import { getOpenCodeProjectConfig, type OpenCodePolicyConfig } from '../services/opencode-runner';
+import { enqueueJob } from '../db/job-queue';
 import { AsanaClient } from '../integrations/asana';
 import { GithubClient } from '../integrations/github';
 import { processAsanaTaskStage5 } from '../services/pipeline-stage5';
@@ -48,6 +50,12 @@ export function projectTasksUiRouter(): Router {
     return null;
   }
 
+  function resolveNextUrl(input: unknown, fallback: string): string {
+    const s = String(input ?? '').trim();
+    if (s.startsWith('/')) return s;
+    return fallback;
+  }
+
   r.get('/p/:slug', requireSession, async (req: Request, res: Response) => {
     const lang = getLangFromRequest(req);
     const slug = String(req.params.slug);
@@ -69,13 +77,22 @@ export function projectTasksUiRouter(): Router {
     const tasks = await listTasksByProject(p.id, statusFilter);
     const asanaProjects = await listProjectAsanaProjects(p.id);
     const repos = await listProjectGithubRepos(p.id);
+    const opencodeCfg = await getOpenCodeProjectConfig(p.id);
 
     const canEdit = membership.role === 'admin' || membership.role === 'editor';
 
     res
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
-      .send(projectDashboardPage(lang, p, tasks, statusFilter, { asanaProjects, repos, canEdit }));
+      .send(
+        projectDashboardPage(lang, p, tasks, statusFilter, {
+          asanaProjects,
+          repos,
+          canEdit,
+          opencodeMode: opencodeCfg.mode,
+          opencodePolicy: opencodeCfg.policy,
+        }),
+      );
   });
 
   r.get('/p/:slug/t/:id', requireSession, async (req: Request, res: Response) => {
@@ -326,6 +343,88 @@ export function projectTasksUiRouter(): Router {
     await processAsanaTaskStage5({ projectId: p.id, asanaProjectGid, asanaTaskGid: task.asana_gid });
     await insertTaskEvent({ taskId: task.id, kind: 'manual.retry', message: 'Retry pipeline', userId: (req as any).auth.userId });
     res.redirect(`/p/${encodeURIComponent(p.slug)}/t/${encodeURIComponent(task.id)}`);
+  });
+
+  r.post('/p/:slug/t/:id/opencode/run', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || (membership.role !== 'admin' && membership.role !== 'editor')) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+
+    const id = String(req.params.id);
+    const task = await getTaskById(id);
+    if (!task || task.project_id !== p.id) {
+      res.status(404).send('Task not found');
+      return;
+    }
+
+    if (!task.github_issue_number) {
+      res.status(400).send('Task has no GitHub issue yet');
+      return;
+    }
+
+    if (task.github_pr_number) {
+      res.status(400).send('Task already has a PR linked');
+      return;
+    }
+
+    const opencodeCfg = await getOpenCodeProjectConfig(p.id);
+    if (opencodeCfg.mode === 'off') {
+      res.status(400).send('OpenCode mode is off');
+      return;
+    }
+
+    const nextUrl = resolveNextUrl((req.body as any)?.next, `/p/${encodeURIComponent(p.slug)}`);
+
+    if (opencodeCfg.mode === 'server-runner') {
+      await enqueueJob({
+        projectId: p.id,
+        provider: 'internal',
+        kind: 'opencode.run',
+        payload: { projectId: p.id, taskId: task.id },
+      });
+      await insertTaskEvent({
+        taskId: task.id,
+        kind: 'opencode.job_enqueued',
+        message: 'Manual OpenCode run enqueued',
+        userId: (req as any).auth.userId,
+      });
+      res.redirect(nextUrl);
+      return;
+    }
+
+    const repoOwner = task.github_repo_owner;
+    const repoName = task.github_repo_name;
+    if (!repoOwner || !repoName) {
+      res.status(400).send('Missing repo metadata on task');
+      return;
+    }
+
+    const ghToken = await getProjectSecretPlain(p.id, 'GITHUB_TOKEN');
+    if (!ghToken) {
+      res.status(400).send('Missing GITHUB_TOKEN in project secrets');
+      return;
+    }
+
+    const gh = new GithubClient(ghToken, repoOwner, repoName);
+    await gh.addIssueComment(task.github_issue_number, opencodeCfg.command);
+    await insertTaskEvent({
+      taskId: task.id,
+      kind: 'github.issue_commented',
+      message: `Manual OpenCode trigger posted: ${opencodeCfg.command}`,
+      userId: (req as any).auth.userId,
+      refJson: { issueNumber: task.github_issue_number, comment: opencodeCfg.command },
+    });
+
+    res.redirect(nextUrl);
   });
 
   r.post('/p/:slug/t/:id/repo/change', requireSession, async (req: Request, res: Response) => {
@@ -579,6 +678,7 @@ function projectTabs(p: { slug: string }, active: string, lang: UiLang): string 
       { key: 'home', label: 'Home', href: `/p/${p.slug}` },
       { key: 'settings', label: t(lang, 'screens.settings.title'), href: `/p/${p.slug}/settings` },
       { key: 'webhooks', label: t(lang, 'screens.webhooks.title'), href: `/p/${p.slug}/webhooks` },
+      { key: 'integrations', label: t(lang, 'screens.integrations.title'), href: `/p/${p.slug}/integrations/opencode` },
       { key: 'api', label: t(lang, 'screens.api.title'), href: `/p/${p.slug}/api` },
       { key: 'knowledge', label: t(lang, 'screens.knowledge.title'), href: `/p/${p.slug}/knowledge` },
     ],
@@ -601,12 +701,23 @@ function statusBadge(status: string): string {
   return `<span class="badge ${cls}">${escapeHtml(s)}</span>`;
 }
 
+function truncateText(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(0, max - 3))}...`;
+}
+
 function projectDashboardPage(
   lang: UiLang,
   p: { slug: string; name: string },
   tasks: any[],
   status: string | undefined,
-  opts: { asanaProjects: string[]; repos: Array<{ owner: string; repo: string }>; canEdit: boolean },
+  opts: {
+    asanaProjects: string[];
+    repos: Array<{ owner: string; repo: string }>;
+    canEdit: boolean;
+    opencodeMode: string;
+    opencodePolicy: OpenCodePolicyConfig;
+  },
 ): string {
   const top = renderTopbar({
     title: p.name,
@@ -630,12 +741,49 @@ function projectDashboardPage(
     'FAILED',
   ];
 
+  const nextUrl = status ? `/p/${p.slug}?status=${encodeURIComponent(status)}` : `/p/${p.slug}`;
+
   const rows = tasks
     .map((t0) => {
       const href = `/p/${p.slug}/t/${encodeURIComponent(String(t0.id))}`;
       const issue = t0.github_issue_url ? `<a href="${escapeHtml(t0.github_issue_url)}" target="_blank" rel="noreferrer">Issue</a>` : '';
       const pr = t0.github_pr_url ? `<a href="${escapeHtml(t0.github_pr_url)}" target="_blank" rel="noreferrer">PR</a>` : '';
       const ci = t0.ci_url ? `<a href="${escapeHtml(t0.ci_url)}" target="_blank" rel="noreferrer">CI</a>` : '';
+      const actionNotes: string[] = [];
+      if (!opts.canEdit) actionNotes.push('Read-only');
+      if (!t0.github_issue_number) actionNotes.push('No issue');
+      if (t0.github_pr_number) actionNotes.push('PR linked');
+      if (opts.opencodeMode === 'off') actionNotes.push('OpenCode off');
+      if (opts.opencodeMode === 'server-runner' && opts.opencodePolicy.writeMode !== 'pr_only') {
+        actionNotes.push(`Policy write_mode=${opts.opencodePolicy.writeMode}`);
+      }
+
+      const canRun =
+        opts.canEdit &&
+        opts.opencodeMode !== 'off' &&
+        opts.opencodePolicy.writeMode === 'pr_only' &&
+        Boolean(t0.github_issue_number) &&
+        !t0.github_pr_number;
+
+      const lastError =
+        t0.status === 'FAILED' && t0.last_error
+          ? `Last error: ${truncateText(String(t0.last_error), 140)}`
+          : '';
+      if (lastError) actionNotes.push(lastError);
+
+      const notesHtml = actionNotes.length
+        ? `<div class="muted" style="margin-top:6px;white-space:pre-line">${escapeHtml(actionNotes.join('\n'))}</div>`
+        : '';
+
+      const runButton = canRun
+        ? `
+          <form method="post" action="/p/${p.slug}/t/${encodeURIComponent(String(t0.id))}/opencode/run" style="display:inline">
+            <input type="hidden" name="next" value="${escapeHtml(nextUrl)}" />
+            <button class="btn btn-secondary btn-sm" type="submit">${escapeHtml(t(lang, 'screens.dashboard.run_now'))}</button>
+          </form>
+        `
+        : '';
+      const actionCell = `${runButton}${notesHtml || (runButton ? '' : '<span class="muted">-</span>')}`;
       return `
         <tr data-row-href="${href}">
           <td class="mono"><a href="${href}">${escapeHtml(String(t0.id))}</a></td>
@@ -645,6 +793,7 @@ function projectDashboardPage(
           <td>${pr || '<span class="muted">-</span>'}</td>
           <td>${ci || '<span class="muted">-</span>'}</td>
           <td class="muted">${escapeHtml(String(t0.updated_at ?? ''))}</td>
+          <td>${actionCell}</td>
         </tr>
       `;
     })
@@ -759,8 +908,8 @@ function projectDashboardPage(
       <div style="font-weight:900;margin-bottom:12px">Tasks</div>
       <div style="overflow:auto">
         <table>
-          <thead><tr><th>ID</th><th>Status</th><th>Title</th><th>Issue</th><th>PR</th><th>CI</th><th>Updated</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="7" class="muted">${escapeHtml(t(lang, 'screens.dashboard.empty'))}</td></tr>`}</tbody>
+          <thead><tr><th>ID</th><th>Status</th><th>Title</th><th>Issue</th><th>PR</th><th>CI</th><th>Updated</th><th>${escapeHtml(t(lang, 'screens.task.actions'))}</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="8" class="muted">${escapeHtml(t(lang, 'screens.dashboard.empty'))}</td></tr>`}</tbody>
         </table>
       </div>
     </div>

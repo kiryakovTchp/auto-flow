@@ -90,6 +90,7 @@ const EN: Dict = {
       apply: 'Apply',
       sync_asana: 'Sync from Asana',
       create_task: 'Create Task',
+      run_now: 'Run now',
       import_title: 'Import from Asana',
       import_days: 'Import last N days',
       import_days_help: 'Default 90, max 365',
@@ -149,6 +150,9 @@ const EN: Dict = {
       subtitle: 'Notes are stored in DB (markdown).',
       markdown: 'Markdown',
       save: 'Save',
+    },
+    integrations: {
+      title: 'Integrations',
     },
     admin: {
       title: 'Instance Admin',
@@ -222,6 +226,7 @@ const RU: Dict = {
       apply: 'Применить',
       sync_asana: 'Синхронизация из Asana',
       create_task: 'Создать задачу',
+      run_now: 'Запустить',
       import_title: 'Импорт из Asana',
       import_days: 'Импорт за N дней',
       import_days_help: 'По умолчанию 90, максимум 365',
@@ -281,6 +286,9 @@ const RU: Dict = {
       subtitle: 'Заметки хранятся в БД (markdown).',
       markdown: 'Markdown',
       save: 'Сохранить',
+    },
+    integrations: {
+      title: 'Интеграции',
     },
     admin: {
       title: 'Админ инстанса',

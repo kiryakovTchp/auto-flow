@@ -14,7 +14,11 @@ import {
   deleteSession,
 } from '../db/auth';
 import { createProjectApiToken, listProjectApiTokens, revokeProjectApiToken } from '../db/api-tokens';
+import { getAgentRunById, listAgentRunLogs, listAgentRunsByProject } from '../db/agent-runs';
 import { createMembership, createProject, getMembership, getProjectBySlug, listProjects, listProjectsForUser } from '../db/projects';
+import { getIntegrationByProjectType } from '../db/integrations';
+import { getOauthCredentials } from '../db/oauth-credentials';
+import { insertProjectEvent } from '../db/project-events';
 import {
   addProjectAsanaProject,
   addProjectGithubRepo,
@@ -36,7 +40,16 @@ import {
 import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
-import { getOpenCodeProjectConfig, type OpenCodeProjectConfig, normalizeOpenCodeMode, normalizeOpenCodeCommand, normalizeTimeoutMinutes } from '../services/opencode-runner';
+import {
+  getOpenCodeProjectConfig,
+  type OpenCodeProjectConfig,
+  normalizeOpenCodeMode,
+  normalizeOpenCodeCommand,
+  normalizeTimeoutMinutes,
+  normalizeWriteMode,
+  normalizeMaxFilesChanged,
+} from '../services/opencode-runner';
+import { disconnectOpenCodeIntegration, handleOpenCodeOauthCallback, startOpenCodeOauth } from '../services/opencode-oauth';
 import { AsanaClient } from '../integrations/asana';
 import { escapeHtml, pageShell, renderCodeBlock, renderLanguageToggle, renderTabs, renderTopbar } from '../services/html';
 import { getLangFromRequest, normalizeLang, setLangCookie, t, type UiLang } from '../services/i18n';
@@ -371,7 +384,6 @@ export function authUiRouter(): Router {
     const hasAsanaPat = Boolean(await getProjectSecretPlain(p.id, 'ASANA_PAT'));
     const hasGithubToken = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_TOKEN'));
     const hasGithubWebhookSecret = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_WEBHOOK_SECRET'));
-    const hasOpenAiKey = Boolean(await getProjectSecretPlain(p.id, 'OPENAI_API_KEY'));
     const opencodeCfg = await getOpenCodeProjectConfig(p.id);
 
     const asanaFieldCfg = await getAsanaFieldConfig(p.id);
@@ -394,12 +406,197 @@ export function authUiRouter(): Router {
           statusMap,
           repoMap,
           opencodeCfg,
-          { hasOpenAiKey },
           links,
           contacts,
           lang,
         ),
       );
+  });
+
+  r.get('/p/:slug/integrations/opencode', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+
+    const integration = await getIntegrationByProjectType(p.id, 'opencode');
+    const creds = integration ? await getOauthCredentials({ integrationId: integration.id, provider: 'openai' }) : null;
+    const runs = await listAgentRunsByProject({ projectId: p.id, limit: 20 });
+    const notice = parseOpencodeNotice(req.query);
+
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(
+        opencodeIntegrationPage({
+          lang,
+          p,
+          integration,
+          creds,
+          runs,
+          canAdmin: membership.role === 'admin',
+          notice,
+        }),
+      );
+  });
+
+  r.get('/p/:slug/integrations/opencode/runs/:runId', requireSession, async (req: Request, res: Response) => {
+    const lang = getLangFromRequest(req);
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+
+    const runId = String(req.params.runId);
+    const run = await getAgentRunById({ projectId: p.id, runId });
+    if (!run) {
+      res.status(404).send('Run not found');
+      return;
+    }
+
+    const logs = await listAgentRunLogs({ runId, limit: 500 });
+
+    res
+      .status(200)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(opencodeRunDetailsPage({ lang, p, run, logs }));
+  });
+
+  r.post('/p/:slug/integrations/opencode/connect', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can connect integrations');
+      return;
+    }
+
+    const returnUrl = `/p/${encodeURIComponent(p.slug)}/integrations/opencode`;
+    const redirectBaseUrl = resolveBaseUrl(req);
+
+    const result = await startOpenCodeOauth({
+      projectId: p.id,
+      userId: (req as any).auth.userId,
+      returnUrl,
+      redirectBaseUrl,
+    });
+
+    await insertProjectEvent({
+      projectId: p.id,
+      source: 'user',
+      eventType: 'opencode.oauth_started',
+      userId: (req as any).auth.userId,
+      refJson: { state: result.state, expiresAt: result.expiresAt.toISOString() },
+    });
+
+    res.redirect(result.authorizeUrl);
+  });
+
+  r.post('/p/:slug/integrations/opencode/reconnect', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can connect integrations');
+      return;
+    }
+
+    const returnUrl = `/p/${encodeURIComponent(p.slug)}/integrations/opencode`;
+    const redirectBaseUrl = resolveBaseUrl(req);
+
+    const result = await startOpenCodeOauth({
+      projectId: p.id,
+      userId: (req as any).auth.userId,
+      returnUrl,
+      redirectBaseUrl,
+    });
+
+    await insertProjectEvent({
+      projectId: p.id,
+      source: 'user',
+      eventType: 'opencode.oauth_reconnect_started',
+      userId: (req as any).auth.userId,
+      refJson: { state: result.state, expiresAt: result.expiresAt.toISOString() },
+    });
+
+    res.redirect(result.authorizeUrl);
+  });
+
+  r.post('/p/:slug/integrations/opencode/disconnect', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership || membership.role !== 'admin') {
+      res.status(403).send('Only project admins can disconnect integrations');
+      return;
+    }
+
+    await disconnectOpenCodeIntegration({ projectId: p.id });
+    await insertProjectEvent({
+      projectId: p.id,
+      source: 'user',
+      eventType: 'opencode.disconnected',
+      userId: (req as any).auth.userId,
+    });
+
+    res.redirect(`/p/${encodeURIComponent(p.slug)}/integrations/opencode?opencode=disconnected`);
+  });
+
+  r.get(['/oauth/opencode/callback', '/api/oauth/opencode/callback'], async (req: Request, res: Response) => {
+    const code = String(req.query.code ?? '').trim();
+    const state = String(req.query.state ?? '').trim();
+    if (!code || !state) {
+      res.status(400).send('Missing code or state');
+      return;
+    }
+
+    try {
+      const result = await handleOpenCodeOauthCallback({ code, state });
+      await insertProjectEvent({
+        projectId: result.projectId,
+        source: 'system',
+        eventType: 'opencode.oauth_connected',
+        refJson: { state },
+      });
+
+      const redirectUrl = ensureSafeReturnUrl(result.returnUrl, resolveBaseUrl(req));
+      res.redirect(withQuery(redirectUrl, { opencode: 'connected' }));
+    } catch (err: any) {
+      const redirectUrl = ensureSafeReturnUrl(String((req.query.return_url ?? '') || '/app'), resolveBaseUrl(req));
+      res.redirect(withQuery(redirectUrl, { opencode: 'error', reason: String(err?.message ?? err) }));
+    }
   });
 
   r.post('/p/:slug/settings/links/add', requireSession, async (req: Request, res: Response) => {
@@ -543,7 +740,9 @@ export function authUiRouter(): Router {
     const timeoutRaw = String((req.body as any)?.opencode_pr_timeout_min ?? '').trim();
     const modelRaw = String((req.body as any)?.opencode_model ?? '').trim();
     const workspaceRootRaw = String((req.body as any)?.opencode_workspace_root ?? '').trim();
-    const openAiKey = String((req.body as any)?.openai_api_key ?? '').trim();
+    const policyWriteModeRaw = String((req.body as any)?.opencode_policy_write_mode ?? '').trim();
+    const policyMaxFilesRaw = String((req.body as any)?.opencode_policy_max_files_changed ?? '').trim();
+    const policyDenyPathsRaw = String((req.body as any)?.opencode_policy_deny_paths ?? '').trim();
 
     const mode = normalizeOpenCodeMode(modeRaw);
     if (mode) {
@@ -569,9 +768,17 @@ export function authUiRouter(): Router {
       await setProjectSecret(p.id, 'OPENCODE_WORKSPACE_ROOT', workspaceRootRaw);
     }
 
-    if (openAiKey) {
-      await setProjectSecret(p.id, 'OPENAI_API_KEY', openAiKey);
+    const writeMode = normalizeWriteMode(policyWriteModeRaw);
+    if (writeMode) {
+      await setProjectSecret(p.id, 'OPENCODE_POLICY_WRITE_MODE', writeMode);
     }
+
+    if (policyMaxFilesRaw || policyMaxFilesRaw === '0') {
+      const maxFiles = normalizeMaxFilesChanged(policyMaxFilesRaw);
+      await setProjectSecret(p.id, 'OPENCODE_POLICY_MAX_FILES_CHANGED', maxFiles ? String(maxFiles) : '');
+    }
+
+    await setProjectSecret(p.id, 'OPENCODE_POLICY_DENY_PATHS', policyDenyPathsRaw);
 
     res.redirect(`/p/${encodeURIComponent(p.slug)}/settings`);
   });
@@ -710,7 +917,6 @@ export function authUiRouter(): Router {
       const hasAsanaPat = Boolean(await getProjectSecretPlain(p.id, 'ASANA_PAT'));
       const hasGithubToken = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_TOKEN'));
       const hasGithubWebhookSecret = Boolean(await getProjectSecretPlain(p.id, 'GITHUB_WEBHOOK_SECRET'));
-      const hasOpenAiKey = Boolean(await getProjectSecretPlain(p.id, 'OPENAI_API_KEY'));
       const opencodeCfg = await getOpenCodeProjectConfig(p.id);
 
       const asanaFieldCfg = await getAsanaFieldConfig(p.id);
@@ -733,7 +939,6 @@ export function authUiRouter(): Router {
             statusMap,
             repoMap,
             opencodeCfg,
-            { hasOpenAiKey },
             links,
             contacts,
             lang,
@@ -1339,6 +1544,7 @@ function projectTabs(p: { slug: string }, active: string, lang: UiLang): string 
     { key: 'home', label: 'Home', href: `/p/${p.slug}` },
     { key: 'settings', label: t(lang, 'screens.settings.title'), href: `/p/${p.slug}/settings` },
     { key: 'webhooks', label: t(lang, 'screens.webhooks.title'), href: `/p/${p.slug}/webhooks` },
+    { key: 'integrations', label: t(lang, 'screens.integrations.title'), href: `/p/${p.slug}/integrations/opencode` },
     { key: 'api', label: t(lang, 'screens.api.title'), href: `/p/${p.slug}/api` },
     { key: 'knowledge', label: t(lang, 'screens.knowledge.title'), href: `/p/${p.slug}/knowledge` },
   ];
@@ -1360,6 +1566,200 @@ function projectShell(lang: UiLang, p: { slug: string; name: string }, active: s
   });
 }
 
+function resolveBaseUrl(req: Request): string {
+  const envBase = String(process.env.PUBLIC_BASE_URL ?? '').trim();
+  return envBase || String(req.protocol + '://' + req.get('host'));
+}
+
+function ensureSafeReturnUrl(raw: string, baseUrl: string): string {
+  if (!raw) return '/app';
+  if (raw.startsWith('/')) return raw;
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(raw, base);
+    if (url.origin !== base.origin) return '/app';
+    return `${url.pathname}${url.search}${url.hash}` || '/app';
+  } catch {
+    return '/app';
+  }
+}
+
+function withQuery(url: string, params: Record<string, string>): string {
+  const u = url.includes('://') ? new URL(url) : new URL(url, 'http://local');
+  for (const [k, v] of Object.entries(params)) {
+    if (v) u.searchParams.set(k, v);
+  }
+  const s = `${u.pathname}${u.search}${u.hash}`;
+  return url.includes('://') ? u.toString() : s;
+}
+
+function parseOpencodeNotice(query: any): { kind: 'success' | 'error'; title: string; message: string } | null {
+  const status = String(query?.opencode ?? '').trim();
+  if (status === 'connected') {
+    return { kind: 'success', title: 'OpenCode connected', message: 'OAuth connection completed successfully.' };
+  }
+  if (status === 'disconnected') {
+    return { kind: 'success', title: 'OpenCode disconnected', message: 'Integration has been disabled.' };
+  }
+  if (status === 'error') {
+    const reason = String(query?.reason ?? '').trim();
+    return { kind: 'error', title: 'OpenCode connection failed', message: reason || 'OAuth flow failed.' };
+  }
+  return null;
+}
+
+function opencodeIntegrationPage(params: {
+  lang: UiLang;
+  p: { slug: string; name: string };
+  integration: { status: string; connected_at: string | null; last_error: string | null } | null;
+  creds: { expires_at: string | null; scopes: string | null; token_type: string | null; last_refresh_at: string | null } | null;
+  runs: Array<{ id: string; status: string; created_at: string; started_at: string | null; finished_at: string | null; output_summary: string | null }>;
+  canAdmin: boolean;
+  notice?: { kind: 'success' | 'error'; title: string; message: string } | null;
+}): string {
+  const { lang, p, integration, creds, canAdmin } = params;
+  const status = integration?.status ?? 'disabled';
+  const scopes = creds?.scopes ? String(creds.scopes).split(/\s+/).filter(Boolean) : [];
+
+  const noticeCard = params.notice
+    ? `
+      <div class="card" style="border-color:${params.notice.kind === 'success' ? '#2dd4bf' : '#ff6b6b'};margin-bottom:16px">
+        <div style="font-weight:900">${escapeHtml(params.notice.title)}</div>
+        <div class="muted" style="margin-top:8px;white-space:pre-wrap">${escapeHtml(params.notice.message)}</div>
+      </div>
+    `
+    : '';
+
+  const statusBadge = (s: string) => {
+    const v = String(s ?? '').toUpperCase();
+    const cls = v === 'CONNECTED' ? 'badge-success' : v === 'EXPIRED' || v === 'ERROR' ? 'badge-danger' : 'badge-gray';
+    return `<span class="badge ${cls}">${escapeHtml(v)}</span>`;
+  };
+
+  const details = `
+    <div class="card">
+      <div style="font-weight:900">OpenCode OAuth</div>
+      <div class="muted" style="margin-top:6px">Project-scoped OAuth for OpenCode CLI (external auth).</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <span class="badge ${status === 'connected' ? 'badge-success' : 'badge-gray'}">Status: ${escapeHtml(status)}</span>
+        ${statusBadge(status)}
+      </div>
+      <div class="muted" style="margin-top:12px">Connected at: ${escapeHtml(integration?.connected_at ?? '-')}</div>
+      <div class="muted" style="margin-top:6px">Token expires: ${escapeHtml(creds?.expires_at ?? '-')}</div>
+      <div class="muted" style="margin-top:6px">Last refresh: ${escapeHtml(creds?.last_refresh_at ?? '-')}</div>
+      <div class="muted" style="margin-top:6px">Scopes: ${escapeHtml(scopes.length ? scopes.join(' ') : '-')}</div>
+      <div class="muted" style="margin-top:6px">Last error: ${escapeHtml(integration?.last_error ?? '-')}</div>
+    </div>
+  `;
+
+  const actions = canAdmin
+    ? `
+      <div class="card">
+        <div style="font-weight:900">Actions</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+          <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/connect">
+            <button class="btn btn-primary btn-md" type="submit">Connect</button>
+          </form>
+          <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/reconnect">
+            <button class="btn btn-secondary btn-md" type="submit">Reconnect</button>
+          </form>
+          <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/disconnect">
+            <button class="btn btn-secondary btn-md" type="submit">Disconnect</button>
+          </form>
+        </div>
+      </div>
+    `
+    : '';
+
+  const runsRows = params.runs
+    .map((run) => {
+      const href = `/p/${p.slug}/integrations/opencode/runs/${encodeURIComponent(run.id)}`;
+      return `
+        <tr>
+          <td class="mono"><a href="${href}">${escapeHtml(run.id)}</a></td>
+          <td>${escapeHtml(String(run.status ?? ''))}</td>
+          <td class="muted">${escapeHtml(run.created_at ?? '')}</td>
+          <td class="muted">${escapeHtml(run.started_at ?? '-') }</td>
+          <td class="muted">${escapeHtml(run.finished_at ?? '-') }</td>
+          <td class="muted">${escapeHtml(run.output_summary ?? '')}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const runsCard = `
+    <div class="card">
+      <div style="font-weight:900">Agent Runs</div>
+      <div class="muted" style="margin-top:6px">Latest ${params.runs.length} runs (most recent first).</div>
+      <div style="overflow:auto;margin-top:10px">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Run ID</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Started</th>
+              <th>Finished</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${runsRows || '<tr><td colspan="6" class="muted">No runs yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  return projectShell(
+    lang,
+    p,
+    'integrations',
+    `/p/${p.slug}/integrations/opencode`,
+    `${noticeCard}<div class="grid" style="gap:16px">${details}${actions}${runsCard}</div>`,
+  );
+}
+
+function opencodeRunDetailsPage(params: {
+  lang: UiLang;
+  p: { slug: string; name: string };
+  run: { id: string; status: string; created_at: string; started_at: string | null; finished_at: string | null; output_summary: string | null; input_spec: any };
+  logs: Array<{ id: string; stream: string; message: string; created_at: string }>;
+}): string {
+  const { lang, p, run, logs } = params;
+  const logText = logs
+    .map((l) => `[${l.created_at}] [${l.stream}] ${l.message}`)
+    .join('\n');
+
+  const details = `
+    <div class="card">
+      <div style="font-weight:900">Run ${escapeHtml(run.id)}</div>
+      <div class="muted" style="margin-top:6px">Status: ${escapeHtml(run.status)}</div>
+      <div class="muted" style="margin-top:6px">Created: ${escapeHtml(run.created_at)}</div>
+      <div class="muted" style="margin-top:6px">Started: ${escapeHtml(run.started_at ?? '-') }</div>
+      <div class="muted" style="margin-top:6px">Finished: ${escapeHtml(run.finished_at ?? '-') }</div>
+      <div class="muted" style="margin-top:6px">Summary: ${escapeHtml(run.output_summary ?? '-') }</div>
+      <div class="muted" style="margin-top:10px">Input:</div>
+      <pre class="code" style="white-space:pre-wrap">${escapeHtml(JSON.stringify(run.input_spec ?? {}, null, 2))}</pre>
+    </div>
+  `;
+
+  const logsCard = `
+    <div class="card">
+      <div style="font-weight:900">Logs</div>
+      <pre class="code" style="white-space:pre-wrap;max-height:520px;overflow:auto;margin-top:10px">${escapeHtml(logText || 'No logs available.')}</pre>
+    </div>
+  `;
+
+  return projectShell(
+    lang,
+    p,
+    'integrations',
+    `/p/${p.slug}/integrations/opencode/runs/${run.id}`,
+    `<div class="grid" style="gap:16px">${details}${logsCard}</div>`,
+  );
+}
+
 
 
 function projectSettingsPage(
@@ -1371,7 +1771,6 @@ function projectSettingsPage(
   statusMap: Array<{ option_name: string; mapped_status: string }>,
   repoMap: Array<{ option_name: string; owner: string; repo: string }>,
   opencodeCfg: OpenCodeProjectConfig,
-  opencodeSecrets: { hasOpenAiKey: boolean },
   links: Array<{ id: string; kind: string; url: string; title: string | null; tags: string | null }>,
   contacts: Array<{ id: string; role: string; name: string | null; handle: string | null }>,
   lang: UiLang,
@@ -1428,10 +1827,7 @@ function projectSettingsPage(
   const opencodeCard = `
     <div class="card">
       <div style="font-weight:900">OpenCode Runner</div>
-      <div class="muted" style="margin-top:6px">Configure how OpenCode runs for this project.</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
-        <span class="badge ${opencodeSecrets.hasOpenAiKey ? 'badge-success' : 'badge-gray'}">OpenAI Key: ${opencodeSecrets.hasOpenAiKey ? 'set' : 'missing'}</span>
-      </div>
+      <div class="muted" style="margin-top:6px">Configure how OpenCode runs for this project. OAuth tokens are managed in Integrations.</div>
       <form method="post" action="/p/${p.slug}/settings/opencode" style="margin-top:16px">
         <div class="row row-2">
           <div class="form-group">
@@ -1442,6 +1838,15 @@ function projectSettingsPage(
               <option value="off" ${opencodeCfg.mode === 'off' ? 'selected' : ''}>off</option>
             </select>
             <div class="helper">github-actions posts a trigger comment. server-runner runs opencode on this server.</div>
+          </div>
+          <div class="form-group">
+            <label>Write Mode</label>
+            <select name="opencode_policy_write_mode">
+              <option value="pr_only" ${opencodeCfg.policy.writeMode === 'pr_only' ? 'selected' : ''}>pr_only</option>
+              <option value="working_tree" ${opencodeCfg.policy.writeMode === 'working_tree' ? 'selected' : ''}>working_tree</option>
+              <option value="read_only" ${opencodeCfg.policy.writeMode === 'read_only' ? 'selected' : ''}>read_only</option>
+            </select>
+            <div class="helper">Server-runner supports only pr_only. Other modes will block execution.</div>
           </div>
           <div class="form-group">
             <label>Trigger Comment</label>
@@ -1464,13 +1869,19 @@ function projectSettingsPage(
             <div class="helper">Root folder where repos are cloned (server-runner).</div>
           </div>
           <div class="form-group">
-            <label>OpenAI API Key</label>
-            <input name="openai_api_key" type="password" placeholder="sk-..." />
-            <div class="helper">Stored encrypted. Leave blank to keep existing.</div>
+            <label>Max files changed</label>
+            <input name="opencode_policy_max_files_changed" value="${escapeHtml(opencodeCfg.policy.maxFilesChanged ? String(opencodeCfg.policy.maxFilesChanged) : '')}" placeholder="" />
+            <div class="helper">Leave empty for no limit.</div>
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label>Deny paths</label>
+            <textarea name="opencode_policy_deny_paths" rows="4" placeholder="src/billing/**\nsecrets/*">${escapeHtml(opencodeCfg.policy.denyPaths.join('\n'))}</textarea>
+            <div class="helper">One pattern per line. Supports * and ** globs.</div>
           </div>
         </div>
         <div style="margin-top:16px"><button class="btn btn-primary btn-md" type="submit">Save OpenCode</button></div>
       </form>
+      <div class="muted" style="margin-top:12px">Connect OpenCode OAuth in <a href="/p/${p.slug}/integrations/opencode">Integrations</a>.</div>
     </div>
   `;
 

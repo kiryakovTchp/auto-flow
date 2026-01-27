@@ -4,7 +4,7 @@
 - Issue created but OpenCode job never runs (workflow missing / app not installed / no comment trigger).
 - OpenCode runs but fails to open PR (permissions, missing secrets, repo protections).
 - PR created but missing `Fixes #<issue_number>` -> Auto-Flow won't link PR to task.
-- server-runner: OpenCode CLI missing or OpenAI key not configured.
+- server-runner: OpenCode CLI missing or OAuth not connected.
 
 ## How we want it to look from Asana
 "Just looking at Asana" should be enough to know where it failed.
