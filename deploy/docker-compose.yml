@@ -28,6 +28,7 @@ services:
       OPENCODE_OAUTH_CLIENT_SECRET: ${OPENCODE_OAUTH_CLIENT_SECRET}
       OPENCODE_OAUTH_SCOPES: ${OPENCODE_OAUTH_SCOPES}
       OPENCODE_WEB_URL: ${OPENCODE_WEB_URL}
+      OPENCODE_WEB_EMBED: ${OPENCODE_WEB_EMBED}
 
       PGHOST: postgres
       PGPORT: 5432
@@ -54,8 +55,18 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  opencode-web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["opencode", "web", "--hostname", "0.0.0.0", "--port", "4096"]
+    volumes:
+      - opencode_data:/root/.opencode
+
 volumes:
   auto_flow_pgdata:
   auto_flow_data:
   caddy_data:
   caddy_config:
+  opencode_data:

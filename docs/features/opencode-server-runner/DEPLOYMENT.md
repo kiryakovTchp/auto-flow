@@ -80,7 +80,27 @@ Notes:
 - `share: true` can help to get a browser link for the session (if enabled by OpenCode).
 
 ## Optional: OpenCode web UI on VPS (for demo/debug)
-If you want a browser view:
+
+### Docker deployment (recommended)
+The deploy stack includes an `opencode-web` service and a Caddy proxy path at `/opencode`.
+
+1) In `deploy/.env` set:
+
+```
+OPENCODE_WEB_URL=https://your-domain/opencode
+OPENCODE_WEB_EMBED=1
+```
+
+2) Deploy:
+
+```
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+```
+
+This enables the "Open OpenCode Web UI" button and embeds the UI inside Auto-Flow.
+
+### Host deployment (manual)
+If you want a standalone process:
 
 ```
 OPENCODE_SERVER_PASSWORD=change-me opencode web --hostname 0.0.0.0 --port 4096

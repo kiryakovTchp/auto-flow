@@ -432,6 +432,7 @@ export function authUiRouter(): Router {
     const creds = integration ? await getOauthCredentials({ integrationId: integration.id, provider: 'openai' }) : null;
     const runs = await listAgentRunsByProject({ projectId: p.id, limit: 20 });
     const notice = parseOpencodeNotice(req.query);
+    const baseUrl = resolveBaseUrl(req);
 
     res
       .status(200)
@@ -445,6 +446,7 @@ export function authUiRouter(): Router {
           runs,
           canAdmin: membership.role === 'admin',
           notice,
+          baseUrl,
         }),
       );
   });
@@ -1620,6 +1622,22 @@ function getOpenCodeWebUrl(): string | null {
   }
 }
 
+function shouldEmbedOpenCodeWeb(baseUrl: string, webUrl: string): { embed: boolean; reason?: string } {
+  const raw = String(process.env.OPENCODE_WEB_EMBED ?? '').trim().toLowerCase();
+  const enabled = ['1', 'true', 'yes', 'embed', 'on'].includes(raw);
+  if (!enabled) return { embed: false };
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(webUrl);
+    if (base.origin !== url.origin) {
+      return { embed: false, reason: 'Embedding requires same-origin URL (use /opencode proxy).' };
+    }
+  } catch {
+    return { embed: false, reason: 'Invalid OPENCODE_WEB_URL.' };
+  }
+  return { embed: true };
+}
+
 function opencodeIntegrationPage(params: {
   lang: UiLang;
   p: { slug: string; name: string };
@@ -1628,6 +1646,7 @@ function opencodeIntegrationPage(params: {
   runs: Array<{ id: string; status: string; created_at: string; started_at: string | null; finished_at: string | null; output_summary: string | null }>;
   canAdmin: boolean;
   notice?: { kind: 'success' | 'error'; title: string; message: string } | null;
+  baseUrl: string;
 }): string {
   const { lang, p, integration, creds, canAdmin } = params;
   const status = integration?.status ?? 'disabled';
@@ -1684,6 +1703,10 @@ function opencodeIntegrationPage(params: {
     : '';
 
   const webUrl = getOpenCodeWebUrl();
+  const embedCfg = webUrl ? shouldEmbedOpenCodeWeb(params.baseUrl, webUrl) : { embed: false };
+  const webEmbed = webUrl && embedCfg.embed
+    ? `<iframe src="${escapeHtml(webUrl)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:12px"></iframe>`
+    : '';
   const webCard = webUrl
     ? `
       <div class="card">
@@ -1692,6 +1715,8 @@ function opencodeIntegrationPage(params: {
         <div style="margin-top:12px">
           <a class="btn btn-secondary btn-md" href="${escapeHtml(webUrl)}" target="_blank" rel="noreferrer">Open OpenCode Web UI</a>
         </div>
+        ${embedCfg.reason ? `<div class="muted" style="margin-top:10px">${escapeHtml(embedCfg.reason)}</div>` : ''}
+        ${webEmbed ? `<div style="margin-top:12px">${webEmbed}</div>` : ''}
       </div>
     `
     : '';

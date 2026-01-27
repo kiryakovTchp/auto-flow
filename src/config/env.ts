@@ -32,6 +32,7 @@ const envSchema = z.object({
 
   // OpenCode Web UI
   OPENCODE_WEB_URL: z.string().url().optional(),
+  OPENCODE_WEB_EMBED: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
