@@ -39,6 +39,9 @@ export type RuntimeConfig = {
   OPENCODE_MODE: string | null;
   OPENCODE_ENDPOINT: string | null;
   OPENCODE_WORKDIR: string | null;
+  OPENCODE_WEB_URL: string | null;
+  OPENCODE_WEB_EMBED: string | null;
+  OPENCODE_WEB_ENABLED: string | null;
 };
 
 export async function getRuntimeConfig(): Promise<RuntimeConfig> {
@@ -54,6 +57,9 @@ export async function getRuntimeConfig(): Promise<RuntimeConfig> {
     OPENCODE_MODE,
     OPENCODE_ENDPOINT,
     OPENCODE_WORKDIR,
+    OPENCODE_WEB_URL,
+    OPENCODE_WEB_EMBED,
+    OPENCODE_WEB_ENABLED,
   ] = await Promise.all([
     getConfig('ASANA_PAT'),
     getConfig('ASANA_PROJECT_GID'),
@@ -66,6 +72,9 @@ export async function getRuntimeConfig(): Promise<RuntimeConfig> {
     getConfig('OPENCODE_MODE'),
     getConfig('OPENCODE_ENDPOINT'),
     getConfig('OPENCODE_WORKDIR'),
+    getConfig('OPENCODE_WEB_URL'),
+    getConfig('OPENCODE_WEB_EMBED'),
+    getConfig('OPENCODE_WEB_ENABLED'),
   ]);
 
   return {
@@ -80,5 +89,8 @@ export async function getRuntimeConfig(): Promise<RuntimeConfig> {
     OPENCODE_MODE,
     OPENCODE_ENDPOINT,
     OPENCODE_WORKDIR,
+    OPENCODE_WEB_URL,
+    OPENCODE_WEB_EMBED,
+    OPENCODE_WEB_ENABLED,
   };
 }

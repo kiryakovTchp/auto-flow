@@ -11,6 +11,16 @@ import { joinUrl } from '../services/url';
 
 import { openCodeRouter } from './opencode';
 
+function normalizeBoolFlag(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (typeof value === 'boolean') return value ? '1' : '0';
+  const v = String(value ?? '').trim().toLowerCase();
+  if (!v) return null;
+  if (['1', 'true', 'yes', 'on'].includes(v)) return '1';
+  if (['0', 'false', 'no', 'off'].includes(v)) return '0';
+  return null;
+}
+
 export function adminApiRouter(): Router {
   const r = Router();
 
@@ -55,6 +65,11 @@ export function adminApiRouter(): Router {
           has_workdir: Boolean(cfg.OPENCODE_WORKDIR),
           endpoint: cfg.OPENCODE_ENDPOINT,
         },
+        opencode_web: {
+          url: cfg.OPENCODE_WEB_URL,
+          embed: cfg.OPENCODE_WEB_EMBED,
+          enabled: cfg.OPENCODE_WEB_ENABLED,
+        },
         notes: {
           deployed_means: 'PR merged + CI success (workflow_run.completed conclusion=success)',
           pr_must_contain: 'Fixes #<issue_number>',
@@ -80,6 +95,9 @@ export function adminApiRouter(): Router {
           opencode_mode: z.string().min(1).optional(),
           opencode_endpoint: z.string().url().optional(),
           opencode_workdir: z.string().min(1).optional(),
+          opencode_web_url: z.string().url().optional(),
+          opencode_web_embed: z.union([z.boolean(), z.string()]).optional(),
+          opencode_web_enabled: z.union([z.boolean(), z.string()]).optional(),
         })
         .strict();
 
@@ -101,6 +119,26 @@ export function adminApiRouter(): Router {
       if (data.opencode_mode) await setConfig('OPENCODE_MODE', data.opencode_mode);
       if (data.opencode_endpoint) await setConfig('OPENCODE_ENDPOINT', data.opencode_endpoint);
       if (data.opencode_workdir) await setConfig('OPENCODE_WORKDIR', data.opencode_workdir);
+
+      if (data.opencode_web_url !== undefined) {
+        await setConfig('OPENCODE_WEB_URL', data.opencode_web_url);
+      }
+      if (data.opencode_web_embed !== undefined) {
+        const flag = normalizeBoolFlag(data.opencode_web_embed);
+        if (flag === null) {
+          res.status(400).json({ error: 'Invalid opencode_web_embed' });
+          return;
+        }
+        await setConfig('OPENCODE_WEB_EMBED', flag);
+      }
+      if (data.opencode_web_enabled !== undefined) {
+        const flag = normalizeBoolFlag(data.opencode_web_enabled);
+        if (flag === null) {
+          res.status(400).json({ error: 'Invalid opencode_web_enabled' });
+          return;
+        }
+        await setConfig('OPENCODE_WEB_ENABLED', flag);
+      }
 
       res.status(200).json({ ok: true, saved: Object.keys(data) });
     } catch (err) {

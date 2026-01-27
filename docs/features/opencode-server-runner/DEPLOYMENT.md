@@ -89,6 +89,7 @@ The deploy stack includes an `opencode-web` service and a Caddy proxy path at `/
 ```
 OPENCODE_WEB_URL=https://your-domain/opencode
 OPENCODE_WEB_EMBED=1
+OPENCODE_WEB_ENABLED=1
 ```
 
 2) Deploy:
@@ -98,6 +99,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
 
 This enables the "Open OpenCode Web UI" button and embeds the UI inside Auto-Flow.
+
+You can also toggle these in the instance UI at `/admin` → OpenCode Web UI.
 
 ### Host deployment (manual)
 If you want a standalone process:

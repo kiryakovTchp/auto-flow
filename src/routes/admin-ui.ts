@@ -12,6 +12,8 @@ export function adminUiRouter(): Router {
     try {
       const lang = getLangFromRequest(_req);
       const cfg = await getRuntimeConfig();
+      const webEnabled = ['1', 'true', 'yes', 'on'].includes(String(cfg.OPENCODE_WEB_ENABLED ?? '').toLowerCase());
+      const webEmbed = ['1', 'true', 'yes', 'on'].includes(String(cfg.OPENCODE_WEB_EMBED ?? '').toLowerCase());
 
       const ready = cfg.ASANA_PAT && cfg.GITHUB_TOKEN;
       const header = renderTopbar({
@@ -25,9 +27,9 @@ export function adminUiRouter(): Router {
           ${header}
           <div class="badge badge-warning" style="margin-bottom:16px">DANGER ZONE: instance-level changes</div>
 
-          <div class="grid grid-2" style="gap:16px">
-            <div class="card">
-              <div style="font-weight:900">${escapeHtml(t(lang, 'screens.admin.credentials'))}</div>
+        <div class="grid grid-2" style="gap:16px">
+          <div class="card">
+            <div style="font-weight:900">${escapeHtml(t(lang, 'screens.admin.credentials'))}</div>
               <div class="muted" style="margin-top:6px">Master key: <span class="mono">data/master.key</span></div>
               <div class="row row-2" style="margin-top:16px">
                 <div class="form-group">
@@ -61,11 +63,11 @@ export function adminUiRouter(): Router {
                 <button class="btn btn-primary btn-md" id="save_config" type="button">${escapeHtml(t(lang, 'screens.admin.save_config'))}</button>
                 <button class="btn btn-secondary btn-md" id="reload" type="button">${escapeHtml(t(lang, 'screens.admin.reload'))}</button>
               </div>
-            </div>
+          </div>
 
-            <div class="card">
-              <div style="font-weight:900">${escapeHtml(t(lang, 'screens.admin.opencode'))}</div>
-              <div class="muted" style="margin-top:6px">Optional: launch OpenCode in Terminal.</div>
+          <div class="card">
+            <div style="font-weight:900">${escapeHtml(t(lang, 'screens.admin.opencode'))}</div>
+            <div class="muted" style="margin-top:6px">Optional: launch OpenCode in Terminal.</div>
               <div class="row" style="margin-top:16px">
                 <div class="form-group">
                   <label>Mode</label>
@@ -80,12 +82,40 @@ export function adminUiRouter(): Router {
                   <input id="opencode_workdir" value="${escapeHtml(cfg.OPENCODE_WORKDIR ?? '')}" placeholder="/Users/you/projects/target-repo" />
                 </div>
               </div>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
-                <button class="btn btn-primary btn-md" id="save_opencode" type="button">Save OpenCode</button>
-                <button class="btn btn-secondary btn-md" id="launch_opencode" type="button">${escapeHtml(t(lang, 'screens.admin.launch'))}</button>
-              </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+              <button class="btn btn-primary btn-md" id="save_opencode" type="button">Save OpenCode</button>
+              <button class="btn btn-secondary btn-md" id="launch_opencode" type="button">${escapeHtml(t(lang, 'screens.admin.launch'))}</button>
             </div>
           </div>
+
+          <div class="card">
+            <div style="font-weight:900">OpenCode Web UI</div>
+            <div class="muted" style="margin-top:6px">Configure embedded Web UI in Auto-Flow.</div>
+            <div class="row row-2" style="margin-top:16px">
+              <div class="form-group" style="grid-column:1/-1">
+                <label>Web URL</label>
+                <input id="opencode_web_url" value="${escapeHtml(cfg.OPENCODE_WEB_URL ?? '')}" placeholder="https://your-domain/opencode" />
+              </div>
+              <div class="form-group">
+                <label>Enable</label>
+                <label class="checkbox">
+                  <input id="opencode_web_enabled" type="checkbox" ${webEnabled ? 'checked' : ''} />
+                  <span>Show in Integrations</span>
+                </label>
+              </div>
+              <div class="form-group">
+                <label>Embed</label>
+                <label class="checkbox">
+                  <input id="opencode_web_embed" type="checkbox" ${webEmbed ? 'checked' : ''} />
+                  <span>Render iframe (same origin)</span>
+                </label>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+              <button class="btn btn-primary btn-md" id="save_opencode_web" type="button">Save OpenCode Web</button>
+            </div>
+          </div>
+        </div>
 
           <div class="card" style="margin-top:16px">
             <div style="font-weight:900">${escapeHtml(t(lang, 'screens.admin.webhooks'))}</div>
@@ -177,6 +207,21 @@ export function adminUiRouter(): Router {
               log('OpenCode launched in Terminal');
             } catch (e) {
               log('ERROR launching OpenCode: ' + e.message);
+            }
+          });
+
+          document.getElementById('save_opencode_web').addEventListener('click', async () => {
+            try {
+              const body = {
+                opencode_web_url: document.getElementById('opencode_web_url').value || undefined,
+                opencode_web_enabled: document.getElementById('opencode_web_enabled').checked,
+                opencode_web_embed: document.getElementById('opencode_web_embed').checked,
+              };
+              await j('/api/admin/config', { method: 'POST', body: JSON.stringify(body) });
+              log('OpenCode Web config saved');
+              setTimeout(() => location.reload(), 200);
+            } catch (e) {
+              log('ERROR saving OpenCode Web config: ' + e.message);
             }
           });
 

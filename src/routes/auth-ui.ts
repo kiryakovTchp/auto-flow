@@ -40,6 +40,7 @@ import {
 import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
+import { getRuntimeConfig } from '../services/secure-config';
 import {
   getOpenCodeProjectConfig,
   type OpenCodeProjectConfig,
@@ -433,6 +434,13 @@ export function authUiRouter(): Router {
     const runs = await listAgentRunsByProject({ projectId: p.id, limit: 20 });
     const notice = parseOpencodeNotice(req.query);
     const baseUrl = resolveBaseUrl(req);
+    const runtime = await getRuntimeConfig();
+    const webUrl = String(runtime.OPENCODE_WEB_URL ?? '').trim() || null;
+    const webConfig = {
+      url: webUrl,
+      embedEnabled: normalizeBoolFlag(runtime.OPENCODE_WEB_EMBED),
+      enabled: normalizeBoolFlag(runtime.OPENCODE_WEB_ENABLED),
+    };
 
     res
       .status(200)
@@ -447,6 +455,7 @@ export function authUiRouter(): Router {
           canAdmin: membership.role === 'admin',
           notice,
           baseUrl,
+          webConfig,
         }),
       );
   });
@@ -1677,28 +1686,13 @@ function parseOpencodeNotice(query: any): { kind: 'success' | 'error'; title: st
   return null;
 }
 
-function getOpenCodeWebUrl(): string | null {
-  const raw = String(process.env.OPENCODE_WEB_URL ?? '').trim();
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    if (!['http:', 'https:'].includes(url.protocol)) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
+function normalizeBoolFlag(value: string | null | undefined): boolean {
+  const v = String(value ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(v);
 }
 
-function getOpenCodeWebEmbedFlag(): { enabled: boolean; raw: string } {
-  const raw = String(process.env.OPENCODE_WEB_EMBED ?? '').trim();
-  const enabled = ['1', 'true', 'yes', 'embed', 'on'].includes(raw.toLowerCase());
-  return { enabled, raw };
-}
-
-function shouldEmbedOpenCodeWeb(baseUrl: string, webUrl: string): { embed: boolean; reason?: string } {
-  const raw = String(process.env.OPENCODE_WEB_EMBED ?? '').trim().toLowerCase();
-  const enabled = ['1', 'true', 'yes', 'embed', 'on'].includes(raw);
-  if (!enabled) return { embed: false };
+function shouldEmbedOpenCodeWeb(baseUrl: string, webUrl: string, embedEnabled: boolean): { embed: boolean; reason?: string } {
+  if (!embedEnabled) return { embed: false, reason: 'Embed is disabled (OPENCODE_WEB_EMBED=1).'};
   try {
     const base = new URL(baseUrl);
     const url = new URL(webUrl);
@@ -1720,6 +1714,7 @@ function opencodeIntegrationPage(params: {
   canAdmin: boolean;
   notice?: { kind: 'success' | 'error'; title: string; message: string } | null;
   baseUrl: string;
+  webConfig: { url: string | null; embedEnabled: boolean; enabled: boolean };
 }): string {
   const { lang, p, integration, creds, canAdmin } = params;
   const status = integration?.status ?? 'disabled';
@@ -1775,14 +1770,15 @@ function opencodeIntegrationPage(params: {
     `
     : '';
 
-  const webUrl = getOpenCodeWebUrl();
-  const embedFlag = getOpenCodeWebEmbedFlag();
-  const embedCfg = webUrl ? shouldEmbedOpenCodeWeb(params.baseUrl, webUrl) : { embed: false, reason: embedFlag.enabled ? 'OPENCODE_WEB_URL is not set.' : undefined };
+  const webUrl = params.webConfig.url;
+  const embedCfg = webUrl
+    ? shouldEmbedOpenCodeWeb(params.baseUrl, webUrl, params.webConfig.embedEnabled)
+    : { embed: false, reason: params.webConfig.embedEnabled ? 'OPENCODE_WEB_URL is not set.' : undefined };
   const webEmbed = webUrl && embedCfg.embed
     ? `<iframe src="${escapeHtml(webUrl)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:12px"></iframe>`
     : '';
   const suggestedUrl = `${params.baseUrl.replace(/\/$/, '')}/opencode`;
-  const webCard = webUrl
+  const webCard = webUrl && params.webConfig.enabled
     ? `
       <div class="card">
         <div style="font-weight:900">OpenCode Web UI</div>
@@ -1802,9 +1798,11 @@ function opencodeIntegrationPage(params: {
       <div class="muted" style="margin-top:6px">Environment-based settings for the embedded UI.</div>
       <div class="muted" style="margin-top:10px">PUBLIC_BASE_URL: ${escapeHtml(params.baseUrl)}</div>
       <div class="muted" style="margin-top:6px">OPENCODE_WEB_URL: ${escapeHtml(webUrl ?? 'not set')}</div>
-      <div class="muted" style="margin-top:6px">OPENCODE_WEB_EMBED: ${escapeHtml(embedFlag.raw || 'not set')}</div>
+      <div class="muted" style="margin-top:6px">OPENCODE_WEB_EMBED: ${params.webConfig.embedEnabled ? '1' : '0'}</div>
+      <div class="muted" style="margin-top:6px">OPENCODE_WEB_ENABLED: ${params.webConfig.enabled ? '1' : '0'}</div>
       ${!webUrl ? `<div class="muted" style="margin-top:6px">Suggested OPENCODE_WEB_URL: ${escapeHtml(suggestedUrl)}</div>` : ''}
-      ${embedFlag.enabled && embedCfg.reason ? `<div class="muted" style="margin-top:6px">Embed: ${escapeHtml(embedCfg.reason)}</div>` : ''}
+      ${params.webConfig.enabled && embedCfg.reason ? `<div class="muted" style="margin-top:6px">Embed: ${escapeHtml(embedCfg.reason)}</div>` : ''}
+      ${!params.webConfig.enabled ? `<div class="muted" style="margin-top:6px">Enable in /admin → OpenCode Web UI.</div>` : ''}
     </div>
   `;
 

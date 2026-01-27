@@ -24,6 +24,7 @@ Set:
 - `OPENCODE_OAUTH_*` (required for server-runner OAuth)
 - `OPENCODE_WEB_URL` (optional, enable OpenCode Web UI button)
 - `OPENCODE_WEB_EMBED=1` (optional, embed UI in Auto-Flow)
+- `OPENCODE_WEB_ENABLED=1` (optional, show in UI)
 
 2) Start services
 

@@ -11,7 +11,10 @@ export type SecretKey =
   | 'PUBLIC_BASE_URL'
   | 'OPENCODE_MODE'
   | 'OPENCODE_ENDPOINT'
-  | 'OPENCODE_WORKDIR';
+  | 'OPENCODE_WORKDIR'
+  | 'OPENCODE_WEB_URL'
+  | 'OPENCODE_WEB_EMBED'
+  | 'OPENCODE_WEB_ENABLED';
 
 export async function upsertAppSecret(key: SecretKey, encryptedValue: string): Promise<void> {
   await pool.query(
