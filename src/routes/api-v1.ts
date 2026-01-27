@@ -8,7 +8,7 @@ import { pool } from '../db/pool';
 import { getTaskById, listTasksByProject } from '../db/tasks-v2';
 import { listTaskEvents } from '../db/task-events';
 import { listProjectWebhooks } from '../db/project-webhooks';
-import { getProjectSecretPlain } from '../services/project-secure-config';
+import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
 import { AsanaClient } from '../integrations/asana';
 import { GithubClient } from '../integrations/github';
 import { processAsanaTaskStage5 } from '../services/pipeline-stage5';
@@ -31,9 +31,16 @@ import { attachPrToTaskById, updateTaskStatusById } from '../db/tasks-v2';
 import { setMergeCommitShaByTaskId } from '../db/tasks-extra';
 import { finalizeTaskIfReady } from '../services/finalize';
 import { getAgentRunById, listAgentRunLogs, listAgentRunsByProject } from '../db/agent-runs';
+import { enqueueJob } from '../db/job-queue';
 import { getIntegrationByProjectType } from '../db/integrations';
 import { getOauthCredentials } from '../db/oauth-credentials';
 import { disconnectOpenCodeIntegration, startOpenCodeOauth } from '../services/opencode-oauth';
+import {
+  getOpenCodeProjectConfig,
+  normalizeDenyPaths,
+  normalizeMaxFilesChanged,
+  normalizeWriteMode,
+} from '../services/opencode-runner';
 
 type AuthedReq = Request & { apiAuth?: { projectId: string; tokenId: string } };
 
@@ -86,6 +93,18 @@ function ensureSafeReturnUrl(raw: string, baseUrl: string): string {
   } catch {
     return '/app';
   }
+}
+
+function formatPolicy(policy: { writeMode: string; denyPaths: string[]; maxFilesChanged: number | null }): {
+  write_mode: string;
+  deny_paths: string[];
+  max_files_changed: number | null;
+} {
+  return {
+    write_mode: policy.writeMode,
+    deny_paths: policy.denyPaths,
+    max_files_changed: policy.maxFilesChanged,
+  };
 }
 
 async function requireProjectToken(req: AuthedReq, res: Response, next: NextFunction): Promise<void> {
@@ -274,6 +293,14 @@ export function apiV1Router(): Router {
             responses: { 200: { description: 'OK' } },
           },
         },
+        '/api/v1/projects/{slug}/tasks/{id}/actions/opencode-run': {
+          post: {
+            summary: 'Trigger OpenCode run for a task',
+            tags: ['actions'],
+            parameters: [slugParam, idParam],
+            responses: { 200: { description: 'OK' }, 400: { description: 'Bad request' } },
+          },
+        },
         '/api/v1/projects/{slug}/links': {
           get: { summary: 'List links', tags: ['settings'], parameters: [slugParam], responses: { 200: { description: 'OK' } } },
           post: { summary: 'Add link', tags: ['settings'], parameters: [slugParam], responses: { 201: { description: 'Created' } } },
@@ -332,6 +359,35 @@ export function apiV1Router(): Router {
             tags: ['integrations'],
             parameters: [slugParam],
             responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' } },
+          },
+        },
+        '/api/v1/projects/{slug}/opencode/policy': {
+          get: {
+            summary: 'Get OpenCode policy settings',
+            tags: ['opencode'],
+            parameters: [slugParam],
+            responses: { 200: { description: 'OK' }, 401: { description: 'Unauthorized' } },
+          },
+          put: {
+            summary: 'Update OpenCode policy settings',
+            tags: ['opencode'],
+            parameters: [slugParam],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      write_mode: { type: 'string', example: 'pr_only' },
+                      deny_paths: { type: 'array', items: { type: 'string' } },
+                      max_files_changed: { type: 'integer', nullable: true },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { 200: { description: 'OK' }, 400: { description: 'Bad request' } },
           },
         },
         '/api/v1/projects/{slug}/opencode/runs': {
@@ -790,6 +846,69 @@ export function apiV1Router(): Router {
     }
   });
 
+  r.get('/projects/:slug/opencode/policy', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const cfg = await getOpenCodeProjectConfig(p.id);
+      res.status(200).json({ policy: formatPolicy(cfg.policy) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.put('/projects/:slug/opencode/policy', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const body = req.body as any;
+
+      if (Object.prototype.hasOwnProperty.call(body, 'write_mode')) {
+        const normalized = normalizeWriteMode(body?.write_mode ?? null);
+        if (!normalized && String(body?.write_mode ?? '').trim()) {
+          res.status(400).json({ error: 'Invalid write_mode', error_code: 'OPENCODE_POLICY_INVALID_WRITE_MODE' });
+          return;
+        }
+        await setProjectSecret(p.id, 'OPENCODE_POLICY_WRITE_MODE', normalized ?? '');
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, 'deny_paths')) {
+        const raw = Array.isArray(body.deny_paths) ? body.deny_paths.join('\n') : String(body.deny_paths ?? '');
+        const normalized = normalizeDenyPaths(raw).join('\n');
+        await setProjectSecret(p.id, 'OPENCODE_POLICY_DENY_PATHS', normalized);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, 'max_files_changed')) {
+        const rawValue = body.max_files_changed;
+        if (rawValue === null || rawValue === '') {
+          await setProjectSecret(p.id, 'OPENCODE_POLICY_MAX_FILES_CHANGED', '');
+        } else {
+          const normalized = normalizeMaxFilesChanged(String(rawValue));
+          if (!normalized) {
+            res.status(400).json({ error: 'Invalid max_files_changed', error_code: 'OPENCODE_POLICY_INVALID_MAX_FILES' });
+            return;
+          }
+          await setProjectSecret(p.id, 'OPENCODE_POLICY_MAX_FILES_CHANGED', String(normalized));
+        }
+      }
+
+      const cfg = await getOpenCodeProjectConfig(p.id);
+      res.status(200).json({ policy: formatPolicy(cfg.policy) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   r.get('/projects/:slug/repos', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
     try {
       const slug = String(req.params.slug);
@@ -986,6 +1105,98 @@ export function apiV1Router(): Router {
         refJson: { action: 'resync', tokenId: req.apiAuth!.tokenId },
       });
       res.status(200).json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.post('/projects/:slug/tasks/:id/actions/opencode-run', requireProjectToken, async (req: AuthedReq, res: Response, next) => {
+    try {
+      const slug = String(req.params.slug);
+      const p = await getAuthedProject(req, slug);
+      if (!p) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const task = await getTaskById(String(req.params.id));
+      if (!task || task.project_id !== p.id) {
+        res.status(404).json({ error: 'Task not found' });
+        return;
+      }
+
+      if (!task.github_issue_number) {
+        res.status(400).json({ error: 'Task has no GitHub issue yet', error_code: 'OPENCODE_TASK_NO_ISSUE' });
+        return;
+      }
+
+      if (task.github_pr_number) {
+        res.status(400).json({ error: 'Task already has a PR linked', error_code: 'OPENCODE_TASK_HAS_PR' });
+        return;
+      }
+
+      const cfg = await getOpenCodeProjectConfig(p.id);
+      const policy = formatPolicy(cfg.policy);
+
+      if (cfg.mode === 'off') {
+        res.status(400).json({ error: 'OpenCode mode is off', error_code: 'OPENCODE_DISABLED', policy });
+        return;
+      }
+
+      if (cfg.mode === 'server-runner' && cfg.policy.writeMode !== 'pr_only') {
+        res.status(400).json({
+          error: `Policy write_mode=${cfg.policy.writeMode} is not supported by server-runner`,
+          error_code: 'OPENCODE_POLICY_WRITE_MODE',
+          policy,
+        });
+        return;
+      }
+
+      if (cfg.mode === 'server-runner' && !cfg.workspaceRoot) {
+        res.status(400).json({ error: 'Missing OPENCODE_WORKSPACE_ROOT', error_code: 'OPENCODE_WORKSPACE_ROOT_MISSING', policy });
+        return;
+      }
+
+      if (cfg.mode === 'server-runner') {
+        await enqueueJob({
+          projectId: p.id,
+          provider: 'internal',
+          kind: 'opencode.run',
+          payload: { projectId: p.id, taskId: task.id },
+        });
+        await insertTaskEvent({
+          taskId: task.id,
+          kind: 'api.action',
+          source: 'api',
+          refJson: { action: 'opencode.run', mode: 'server-runner', tokenId: req.apiAuth!.tokenId },
+        });
+        res.status(200).json({ ok: true, mode: 'server-runner', job_enqueued: true, policy });
+        return;
+      }
+
+      const repoOwner = task.github_repo_owner;
+      const repoName = task.github_repo_name;
+      if (!repoOwner || !repoName) {
+        res.status(400).json({ error: 'Missing repo metadata on task', error_code: 'OPENCODE_REPO_MISSING', policy });
+        return;
+      }
+
+      const ghToken = await getProjectSecretPlain(p.id, 'GITHUB_TOKEN');
+      if (!ghToken) {
+        res.status(400).json({ error: 'Missing GITHUB_TOKEN', error_code: 'GITHUB_TOKEN_MISSING', policy });
+        return;
+      }
+
+      const gh = new GithubClient(ghToken, repoOwner, repoName);
+      await gh.addIssueComment(task.github_issue_number, cfg.command);
+      await insertTaskEvent({
+        taskId: task.id,
+        kind: 'api.action',
+        source: 'api',
+        message: `OpenCode trigger posted: ${cfg.command}`,
+        refJson: { action: 'opencode.run', mode: 'github-actions', tokenId: req.apiAuth!.tokenId },
+      });
+      res.status(200).json({ ok: true, mode: 'github-actions', comment: cfg.command, policy });
     } catch (err) {
       next(err);
     }
