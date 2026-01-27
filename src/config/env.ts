@@ -29,6 +29,9 @@ const envSchema = z.object({
   OPENCODE_OAUTH_CLIENT_ID: z.string().optional(),
   OPENCODE_OAUTH_CLIENT_SECRET: z.string().optional(),
   OPENCODE_OAUTH_SCOPES: z.string().optional(),
+
+  // OpenCode Web UI
+  OPENCODE_WEB_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

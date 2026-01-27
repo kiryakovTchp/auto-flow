@@ -88,6 +88,12 @@ OPENCODE_SERVER_PASSWORD=change-me opencode web --hostname 0.0.0.0 --port 4096
 
 Then reverse-proxy it behind your existing ingress (Caddy/Nginx) and keep it behind auth.
 
+To show a button in Auto-Flow UI, set:
+
+```
+OPENCODE_WEB_URL=https://opencode.your-domain
+```
+
 Docs:
 - https://opencode.ai/docs/web/
 - https://opencode.ai/docs/server/

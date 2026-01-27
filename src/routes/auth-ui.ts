@@ -1608,6 +1608,18 @@ function parseOpencodeNotice(query: any): { kind: 'success' | 'error'; title: st
   return null;
 }
 
+function getOpenCodeWebUrl(): string | null {
+  const raw = String(process.env.OPENCODE_WEB_URL ?? '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function opencodeIntegrationPage(params: {
   lang: UiLang;
   p: { slug: string; name: string };
@@ -1671,6 +1683,19 @@ function opencodeIntegrationPage(params: {
     `
     : '';
 
+  const webUrl = getOpenCodeWebUrl();
+  const webCard = webUrl
+    ? `
+      <div class="card">
+        <div style="font-weight:900">OpenCode Web UI</div>
+        <div class="muted" style="margin-top:6px">Open the OpenCode web interface (if running).</div>
+        <div style="margin-top:12px">
+          <a class="btn btn-secondary btn-md" href="${escapeHtml(webUrl)}" target="_blank" rel="noreferrer">Open OpenCode Web UI</a>
+        </div>
+      </div>
+    `
+    : '';
+
   const runsRows = params.runs
     .map((run) => {
       const href = `/p/${p.slug}/integrations/opencode/runs/${encodeURIComponent(run.id)}`;
@@ -1716,7 +1741,7 @@ function opencodeIntegrationPage(params: {
     p,
     'integrations',
     `/p/${p.slug}/integrations/opencode`,
-    `${noticeCard}<div class="grid" style="gap:16px">${details}${actions}${runsCard}</div>`,
+    `${noticeCard}<div class="grid" style="gap:16px">${details}${actions}${webCard}${runsCard}</div>`,
   );
 }
 
