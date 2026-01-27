@@ -14,7 +14,7 @@ import {
   deleteSession,
 } from '../db/auth';
 import { createProjectApiToken, listProjectApiTokens, revokeProjectApiToken } from '../db/api-tokens';
-import { getAgentRunById, listAgentRunLogs, listAgentRunsByProject } from '../db/agent-runs';
+import { getAgentRunById, listAgentRunLogs, listAgentRunLogsAfter, listAgentRunsByProject } from '../db/agent-runs';
 import { createMembership, createProject, getMembership, getProjectBySlug, listProjects, listProjectsForUser } from '../db/projects';
 import { getIntegrationByProjectType } from '../db/integrations';
 import { getOauthCredentials } from '../db/oauth-credentials';
@@ -479,6 +479,73 @@ export function authUiRouter(): Router {
       .status(200)
       .setHeader('Content-Type', 'text/html; charset=utf-8')
       .send(opencodeRunDetailsPage({ lang, p, run, logs }));
+  });
+
+  r.get('/p/:slug/integrations/opencode/runs/:runId/stream', requireSession, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug);
+    const p = await getProjectBySlug(slug);
+    if (!p) {
+      res.status(404).send('Project not found');
+      return;
+    }
+
+    const membership = await getMembership({ userId: (req as any).auth.userId, projectId: p.id });
+    if (!membership) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+
+    const runId = String(req.params.runId);
+    const run = await getAgentRunById({ projectId: p.id, runId });
+    if (!run) {
+      res.status(404).send('Run not found');
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof (res as any).flushHeaders === 'function') {
+      (res as any).flushHeaders();
+    }
+
+    let lastId = String(req.query.since_id ?? req.header('last-event-id') ?? '').trim();
+    if (!/^\d+$/.test(lastId)) lastId = '';
+    let closed = false;
+
+    const sendLog = (log: { id: string; stream: string; message: string; created_at: string }) => {
+      res.write(`id: ${log.id}\n`);
+      res.write('event: log\n');
+      res.write(`data: ${JSON.stringify(log)}\n\n`);
+    };
+
+    const poll = async () => {
+      if (closed) return;
+      try {
+        const logs = await listAgentRunLogsAfter({ runId, afterId: lastId || null, limit: 200 });
+        for (const log of logs) {
+          lastId = String(log.id);
+          sendLog(log);
+        }
+      } catch (err: any) {
+        res.write('event: error\n');
+        res.write(`data: ${JSON.stringify({ message: String(err?.message ?? err) })}\n\n`);
+      }
+    };
+
+    const interval = setInterval(poll, 2000);
+    const heartbeat = setInterval(() => {
+      res.write(': ping\n\n');
+    }, 15000);
+
+    void poll();
+
+    req.on('close', () => {
+      closed = true;
+      clearInterval(interval);
+      clearInterval(heartbeat);
+    });
   });
 
   r.post('/p/:slug/integrations/opencode/connect', requireSession, async (req: Request, res: Response) => {
@@ -1622,6 +1689,12 @@ function getOpenCodeWebUrl(): string | null {
   }
 }
 
+function getOpenCodeWebEmbedFlag(): { enabled: boolean; raw: string } {
+  const raw = String(process.env.OPENCODE_WEB_EMBED ?? '').trim();
+  const enabled = ['1', 'true', 'yes', 'embed', 'on'].includes(raw.toLowerCase());
+  return { enabled, raw };
+}
+
 function shouldEmbedOpenCodeWeb(baseUrl: string, webUrl: string): { embed: boolean; reason?: string } {
   const raw = String(process.env.OPENCODE_WEB_EMBED ?? '').trim().toLowerCase();
   const enabled = ['1', 'true', 'yes', 'embed', 'on'].includes(raw);
@@ -1703,10 +1776,12 @@ function opencodeIntegrationPage(params: {
     : '';
 
   const webUrl = getOpenCodeWebUrl();
-  const embedCfg = webUrl ? shouldEmbedOpenCodeWeb(params.baseUrl, webUrl) : { embed: false };
+  const embedFlag = getOpenCodeWebEmbedFlag();
+  const embedCfg = webUrl ? shouldEmbedOpenCodeWeb(params.baseUrl, webUrl) : { embed: false, reason: embedFlag.enabled ? 'OPENCODE_WEB_URL is not set.' : undefined };
   const webEmbed = webUrl && embedCfg.embed
     ? `<iframe src="${escapeHtml(webUrl)}" style="width:100%;height:520px;border:1px solid var(--border);border-radius:12px"></iframe>`
     : '';
+  const suggestedUrl = `${params.baseUrl.replace(/\/$/, '')}/opencode`;
   const webCard = webUrl
     ? `
       <div class="card">
@@ -1720,6 +1795,18 @@ function opencodeIntegrationPage(params: {
       </div>
     `
     : '';
+
+  const configCard = `
+    <div class="card">
+      <div style="font-weight:900">OpenCode Web Config</div>
+      <div class="muted" style="margin-top:6px">Environment-based settings for the embedded UI.</div>
+      <div class="muted" style="margin-top:10px">PUBLIC_BASE_URL: ${escapeHtml(params.baseUrl)}</div>
+      <div class="muted" style="margin-top:6px">OPENCODE_WEB_URL: ${escapeHtml(webUrl ?? 'not set')}</div>
+      <div class="muted" style="margin-top:6px">OPENCODE_WEB_EMBED: ${escapeHtml(embedFlag.raw || 'not set')}</div>
+      ${!webUrl ? `<div class="muted" style="margin-top:6px">Suggested OPENCODE_WEB_URL: ${escapeHtml(suggestedUrl)}</div>` : ''}
+      ${embedFlag.enabled && embedCfg.reason ? `<div class="muted" style="margin-top:6px">Embed: ${escapeHtml(embedCfg.reason)}</div>` : ''}
+    </div>
+  `;
 
   const runsRows = params.runs
     .map((run) => {
@@ -1766,7 +1853,7 @@ function opencodeIntegrationPage(params: {
     p,
     'integrations',
     `/p/${p.slug}/integrations/opencode`,
-    `${noticeCard}<div class="grid" style="gap:16px">${details}${actions}${webCard}${runsCard}</div>`,
+    `${noticeCard}<div class="grid" style="gap:16px">${details}${actions}${configCard}${webCard}${runsCard}</div>`,
   );
 }
 
@@ -1797,16 +1884,47 @@ function opencodeRunDetailsPage(params: {
   const logsCard = `
     <div class="card">
       <div style="font-weight:900">Logs</div>
-      <pre class="code" style="white-space:pre-wrap;max-height:520px;overflow:auto;margin-top:10px">${escapeHtml(logText || 'No logs available.')}</pre>
+      <div class="muted" id="opencode-run-live" style="margin-top:6px">Live: connecting...</div>
+      <pre id="opencode-run-logs" data-last-id="${escapeHtml(logs[logs.length - 1]?.id ?? '')}" class="code" style="white-space:pre-wrap;max-height:520px;overflow:auto;margin-top:10px">${escapeHtml(logText || 'No logs available.')}</pre>
     </div>
   `;
+
+  const streamScript = [
+    '<script>',
+    '(() => {',
+    "  const pre = document.getElementById('opencode-run-logs');",
+    "  const status = document.getElementById('opencode-run-live');",
+    '  if (!pre || !status) return;',
+    "  const lastId = pre.getAttribute('data-last-id');",
+    '  const url = new URL(window.location.href);',
+    "  const streamUrl = url.pathname + '/stream' + (lastId ? '?since_id=' + encodeURIComponent(lastId) : '');",
+    '  const es = new EventSource(streamUrl);',
+    '  const appendLine = (line) => {',
+    '    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;',
+    "    pre.textContent = pre.textContent && pre.textContent !== 'No logs available.' ? pre.textContent + '\\n' + line : line;",
+    '    if (atBottom) pre.scrollTop = pre.scrollHeight;',
+    '  };',
+    "  es.addEventListener('open', () => { status.textContent = 'Live: connected'; });",
+    "  es.addEventListener('error', () => { status.textContent = 'Live: disconnected (retrying)'; });",
+    "  es.addEventListener('log', (evt) => {",
+    '    try {',
+    '      const log = JSON.parse(evt.data);',
+    "      const line = '[' + log.created_at + '] [' + log.stream + '] ' + log.message;",
+    '      appendLine(line);',
+    '    } catch (err) {',
+    "      appendLine(String(evt.data || 'log'));",
+    '    }',
+    '  });',
+    '})();',
+    '</script>',
+  ].join('\n');
 
   return projectShell(
     lang,
     p,
     'integrations',
     `/p/${p.slug}/integrations/opencode/runs/${run.id}`,
-    `<div class="grid" style="gap:16px">${details}${logsCard}</div>`,
+    `<div class="grid" style="gap:16px">${details}${logsCard}</div>${streamScript}`,
   );
 }
 

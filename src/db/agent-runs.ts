@@ -109,3 +109,24 @@ export async function listAgentRunLogs(params: { runId: string; limit?: number }
   );
   return res.rows;
 }
+
+export async function listAgentRunLogsAfter(params: {
+  runId: string;
+  afterId?: string | null;
+  limit?: number;
+}): Promise<Array<{ id: string; stream: string; message: string; created_at: string }>> {
+  const lim = Math.max(1, Math.min(500, params.limit ?? 200));
+  const after = params.afterId && /^\d+$/.test(params.afterId) ? params.afterId : '0';
+  const res = await pool.query<{ id: string; stream: string; message: string; created_at: string }>(
+    `
+      select id, stream, message, created_at
+      from agent_run_logs
+      where agent_run_id = $1
+        and id > $2
+      order by id asc
+      limit $3
+    `,
+    [params.runId, after, lim],
+  );
+  return res.rows;
+}
