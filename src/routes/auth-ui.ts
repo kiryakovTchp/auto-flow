@@ -47,6 +47,7 @@ import {
   normalizeOpenCodeMode,
   normalizeOpenCodeCommand,
   normalizeTimeoutMinutes,
+  normalizeAuthMode,
   normalizeWriteMode,
   normalizeMaxFilesChanged,
 } from '../services/opencode-runner';
@@ -818,6 +819,8 @@ export function authUiRouter(): Router {
     const timeoutRaw = String((req.body as any)?.opencode_pr_timeout_min ?? '').trim();
     const modelRaw = String((req.body as any)?.opencode_model ?? '').trim();
     const workspaceRootRaw = String((req.body as any)?.opencode_workspace_root ?? '').trim();
+    const authModeRaw = String((req.body as any)?.opencode_auth_mode ?? '').trim();
+    const localCliReadyRaw = String((req.body as any)?.opencode_local_cli_ready ?? '').trim();
     const policyWriteModeRaw = String((req.body as any)?.opencode_policy_write_mode ?? '').trim();
     const policyMaxFilesRaw = String((req.body as any)?.opencode_policy_max_files_changed ?? '').trim();
     const policyDenyPathsRaw = String((req.body as any)?.opencode_policy_deny_paths ?? '').trim();
@@ -845,6 +848,13 @@ export function authUiRouter(): Router {
     if (workspaceRootRaw) {
       await setProjectSecret(p.id, 'OPENCODE_WORKSPACE_ROOT', workspaceRootRaw);
     }
+
+    const authMode = normalizeAuthMode(authModeRaw);
+    if (authMode) {
+      await setProjectSecret(p.id, 'OPENCODE_AUTH_MODE', authMode);
+    }
+
+    await setProjectSecret(p.id, 'OPENCODE_LOCAL_CLI_READY', localCliReadyRaw ? '1' : '');
 
     const writeMode = normalizeWriteMode(policyWriteModeRaw);
     if (writeMode) {
@@ -2006,6 +2016,14 @@ function projectSettingsPage(
             <div class="helper">github-actions posts a trigger comment. server-runner runs opencode on this server.</div>
           </div>
           <div class="form-group">
+            <label>Auth Mode</label>
+            <select name="opencode_auth_mode">
+              <option value="oauth" ${opencodeCfg.authMode === 'oauth' ? 'selected' : ''}>oauth</option>
+              <option value="local-cli" ${opencodeCfg.authMode === 'local-cli' ? 'selected' : ''}>local-cli</option>
+            </select>
+            <div class="helper">oauth uses project OAuth tokens. local-cli uses server login (opencode login).</div>
+          </div>
+          <div class="form-group">
             <label>Write Mode</label>
             <select name="opencode_policy_write_mode">
               <option value="pr_only" ${opencodeCfg.policy.writeMode === 'pr_only' ? 'selected' : ''}>pr_only</option>
@@ -2033,6 +2051,14 @@ function projectSettingsPage(
             <label>Workspace Root</label>
             <input name="opencode_workspace_root" value="${escapeHtml(opencodeCfg.workspaceRoot ?? '')}" placeholder="/var/lib/opencode/workspaces" />
             <div class="helper">Root folder where repos are cloned (server-runner).</div>
+          </div>
+          <div class="form-group">
+            <label>Local CLI Ready</label>
+            <label class="checkbox">
+              <input name="opencode_local_cli_ready" type="checkbox" ${opencodeCfg.localCliReady ? 'checked' : ''} />
+              <span>OpenCode CLI is logged in on the server</span>
+            </label>
+            <div class="helper">Run: <span class="mono">docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app opencode login</span></div>
           </div>
           <div class="form-group">
             <label>Max files changed</label>

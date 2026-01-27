@@ -1157,6 +1157,15 @@ export function apiV1Router(): Router {
         return;
       }
 
+      if (cfg.mode === 'server-runner' && cfg.authMode === 'local-cli' && !cfg.localCliReady) {
+        res.status(400).json({
+          error: 'Local CLI not ready',
+          error_code: 'OPENCODE_LOCAL_CLI_NOT_READY',
+          policy,
+        });
+        return;
+      }
+
       if (cfg.mode === 'server-runner') {
         await enqueueJob({
           projectId: p.id,

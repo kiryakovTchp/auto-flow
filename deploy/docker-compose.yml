@@ -39,6 +39,7 @@ services:
     volumes:
       # Persist encryption master key + any future local state
       - auto_flow_data:/app/data
+      - opencode_data:/root/.opencode
 
   caddy:
     image: caddy:2-alpine

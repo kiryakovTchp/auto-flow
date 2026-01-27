@@ -91,6 +91,8 @@ export function projectTasksUiRouter(): Router {
           canEdit,
           opencodeMode: opencodeCfg.mode,
           opencodePolicy: opencodeCfg.policy,
+          opencodeAuthMode: opencodeCfg.authMode,
+          opencodeLocalCliReady: opencodeCfg.localCliReady,
         }),
       );
   });
@@ -379,6 +381,11 @@ export function projectTasksUiRouter(): Router {
     const opencodeCfg = await getOpenCodeProjectConfig(p.id);
     if (opencodeCfg.mode === 'off') {
       res.status(400).send('OpenCode mode is off');
+      return;
+    }
+
+    if (opencodeCfg.mode === 'server-runner' && opencodeCfg.authMode === 'local-cli' && !opencodeCfg.localCliReady) {
+      res.status(400).send('Local CLI not ready (run opencode login and enable Local CLI Ready)');
       return;
     }
 
@@ -717,6 +724,8 @@ function projectDashboardPage(
     canEdit: boolean;
     opencodeMode: string;
     opencodePolicy: OpenCodePolicyConfig;
+    opencodeAuthMode: string;
+    opencodeLocalCliReady: boolean;
   },
 ): string {
   const top = renderTopbar({
@@ -754,6 +763,9 @@ function projectDashboardPage(
       if (!t0.github_issue_number) actionNotes.push('No issue');
       if (t0.github_pr_number) actionNotes.push('PR linked');
       if (opts.opencodeMode === 'off') actionNotes.push('OpenCode off');
+      if (opts.opencodeMode === 'server-runner' && opts.opencodeAuthMode === 'local-cli' && !opts.opencodeLocalCliReady) {
+        actionNotes.push('Local CLI not ready');
+      }
       if (opts.opencodeMode === 'server-runner' && opts.opencodePolicy.writeMode !== 'pr_only') {
         actionNotes.push(`Policy write_mode=${opts.opencodePolicy.writeMode}`);
       }
@@ -761,6 +773,7 @@ function projectDashboardPage(
       const canRun =
         opts.canEdit &&
         opts.opencodeMode !== 'off' &&
+        !(opts.opencodeMode === 'server-runner' && opts.opencodeAuthMode === 'local-cli' && !opts.opencodeLocalCliReady) &&
         opts.opencodePolicy.writeMode === 'pr_only' &&
         Boolean(t0.github_issue_number) &&
         !t0.github_pr_number;

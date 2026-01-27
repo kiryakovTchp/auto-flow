@@ -43,11 +43,37 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     return;
   }
 
-  let accessToken: string;
-  try {
-    accessToken = await getOpenCodeAccessToken(params.projectId);
-  } catch (err: any) {
-    await markTaskFailed(params.projectId, task, `OpenCode not connected: ${String(err?.message ?? err)}`);
+  let accessToken: string | null = null;
+  if (opencodeCfg.authMode === 'oauth') {
+    try {
+      accessToken = await getOpenCodeAccessToken(params.projectId);
+    } catch (err: any) {
+      await markTaskFailed(params.projectId, task, `OpenCode not connected: ${String(err?.message ?? err)}`);
+      return;
+    }
+  } else if (opencodeCfg.authMode === 'local-cli') {
+    if (!opencodeCfg.localCliReady) {
+      await markTaskFailed(
+        params.projectId,
+        task,
+        'Local CLI not ready. Run `opencode login` in the app container and enable Local CLI Ready in settings.',
+      );
+      return;
+    }
+    const homeDir = process.env.HOME || '/root';
+    const credsDir = path.join(homeDir, '.opencode');
+    try {
+      await fs.promises.access(credsDir);
+    } catch {
+      await markTaskFailed(
+        params.projectId,
+        task,
+        `OpenCode local CLI credentials not found at ${credsDir}. Run 'opencode login' in the app container.`,
+      );
+      return;
+    }
+  } else {
+    await markTaskFailed(params.projectId, task, `Unknown OpenCode auth mode: ${String(opencodeCfg.authMode)}`);
     return;
   }
 
@@ -124,14 +150,18 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     }
     opencodeArgs.push(prompt);
 
+    const opencodeEnv: Record<string, string> = {
+      OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: 'allow' }),
+      OPENCODE_DISABLE_AUTOUPDATE: '1',
+      OPENCODE_DISABLE_PRUNE: '1',
+    };
+    if (accessToken) {
+      opencodeEnv.OPENAI_ACCESS_TOKEN = accessToken;
+    }
+
     const opencodeResult = await runCommand('opencode', opencodeArgs, {
       cwd: workspaceDir,
-      env: {
-        OPENAI_ACCESS_TOKEN: accessToken,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: 'allow' }),
-        OPENCODE_DISABLE_AUTOUPDATE: '1',
-        OPENCODE_DISABLE_PRUNE: '1',
-      },
+      env: opencodeEnv,
     });
 
     if (agentRunId) {

@@ -12,6 +12,9 @@ This is the setup for "PR only": OpenCode creates a PR, humans merge.
 4) Configure repo list / default repo.
 5) Configure OpenCode Runner settings:
     - Mode: `server-runner` (or `github-actions` if you want Actions)
+    - Auth Mode:
+      - `oauth` (recommended)
+      - `local-cli` (manual login inside container)
     - Trigger comment: `/opencode implement` (Actions only)
     - PR timeout (minutes): default 60
     - Model: `openai/gpt-4o-mini` (or your choice)
@@ -35,6 +38,15 @@ curl -fsSL https://opencode.ai/install | bash
 If you use the Docker deployment, the image already includes `opencode` and `git`.
 
 2) Ensure `opencode` is in PATH for the Auto-Flow service user.
+
+### Local CLI login (if Auth Mode = local-cli)
+1) Login inside the app container:
+
+```
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app opencode login
+```
+
+2) In project settings, enable **Local CLI Ready**.
 
 ## 2.1) Connect OpenCode OAuth
 1) Open the project UI.
