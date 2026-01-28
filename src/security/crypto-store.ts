@@ -27,7 +27,7 @@ export function encryptString(plaintext: string, key: Buffer): string {
 
 export function decryptString(payload: string, key: Buffer): string {
   const [v, ivB64, tagB64, cipherB64] = payload.split(':');
-  if (v !== 'v1' || !ivB64 || !tagB64 || !cipherB64) throw new Error('Invalid encrypted payload format');
+  if (v !== 'v1' || !ivB64 || !tagB64 || cipherB64 === undefined) throw new Error('Invalid encrypted payload format');
 
   const iv = Buffer.from(ivB64, 'base64');
   const tag = Buffer.from(tagB64, 'base64');
