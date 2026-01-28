@@ -433,6 +433,7 @@ export function authUiRouter(): Router {
     const integration = await getIntegrationByProjectType(p.id, 'opencode');
     const creds = integration ? await getOauthCredentials({ integrationId: integration.id, provider: 'openai' }) : null;
     const runs = await listAgentRunsByProject({ projectId: p.id, limit: 20 });
+    const opencodeCfg = await getOpenCodeProjectConfig(p.id);
     const notice = parseOpencodeNotice(req.query);
     const baseUrl = resolveBaseUrl(req);
     const runtime = await getRuntimeConfig();
@@ -453,6 +454,8 @@ export function authUiRouter(): Router {
           integration,
           creds,
           runs,
+          authMode: opencodeCfg.authMode,
+          localCliReady: opencodeCfg.localCliReady,
           canAdmin: membership.role === 'admin',
           notice,
           baseUrl,
@@ -572,25 +575,35 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const opencodeCfg = await getOpenCodeProjectConfig(p.id);
+    if (opencodeCfg.authMode === 'local-cli') {
+      res.redirect(`/p/${encodeURIComponent(p.slug)}/integrations/opencode?opencode=error&reason=Auth%20mode%20is%20local-cli`);
+      return;
+    }
+
     const returnUrl = `/p/${encodeURIComponent(p.slug)}/integrations/opencode`;
     const redirectBaseUrl = resolveBaseUrl(req);
 
-    const result = await startOpenCodeOauth({
-      projectId: p.id,
-      userId: (req as any).auth.userId,
-      returnUrl,
-      redirectBaseUrl,
-    });
+    try {
+      const result = await startOpenCodeOauth({
+        projectId: p.id,
+        userId: (req as any).auth.userId,
+        returnUrl,
+        redirectBaseUrl,
+      });
 
-    await insertProjectEvent({
-      projectId: p.id,
-      source: 'user',
-      eventType: 'opencode.oauth_started',
-      userId: (req as any).auth.userId,
-      refJson: { state: result.state, expiresAt: result.expiresAt.toISOString() },
-    });
+      await insertProjectEvent({
+        projectId: p.id,
+        source: 'user',
+        eventType: 'opencode.oauth_started',
+        userId: (req as any).auth.userId,
+        refJson: { state: result.state, expiresAt: result.expiresAt.toISOString() },
+      });
 
-    res.redirect(result.authorizeUrl);
+      res.redirect(result.authorizeUrl);
+    } catch (err: any) {
+      res.redirect(`/p/${encodeURIComponent(p.slug)}/integrations/opencode?opencode=error&reason=${encodeURIComponent(String(err?.message ?? err))}`);
+    }
   });
 
   r.post('/p/:slug/integrations/opencode/reconnect', requireSession, async (req: Request, res: Response) => {
@@ -607,25 +620,35 @@ export function authUiRouter(): Router {
       return;
     }
 
+    const opencodeCfg = await getOpenCodeProjectConfig(p.id);
+    if (opencodeCfg.authMode === 'local-cli') {
+      res.redirect(`/p/${encodeURIComponent(p.slug)}/integrations/opencode?opencode=error&reason=Auth%20mode%20is%20local-cli`);
+      return;
+    }
+
     const returnUrl = `/p/${encodeURIComponent(p.slug)}/integrations/opencode`;
     const redirectBaseUrl = resolveBaseUrl(req);
 
-    const result = await startOpenCodeOauth({
-      projectId: p.id,
-      userId: (req as any).auth.userId,
-      returnUrl,
-      redirectBaseUrl,
-    });
+    try {
+      const result = await startOpenCodeOauth({
+        projectId: p.id,
+        userId: (req as any).auth.userId,
+        returnUrl,
+        redirectBaseUrl,
+      });
 
-    await insertProjectEvent({
-      projectId: p.id,
-      source: 'user',
-      eventType: 'opencode.oauth_reconnect_started',
-      userId: (req as any).auth.userId,
-      refJson: { state: result.state, expiresAt: result.expiresAt.toISOString() },
-    });
+      await insertProjectEvent({
+        projectId: p.id,
+        source: 'user',
+        eventType: 'opencode.oauth_reconnect_started',
+        userId: (req as any).auth.userId,
+        refJson: { state: result.state, expiresAt: result.expiresAt.toISOString() },
+      });
 
-    res.redirect(result.authorizeUrl);
+      res.redirect(result.authorizeUrl);
+    } catch (err: any) {
+      res.redirect(`/p/${encodeURIComponent(p.slug)}/integrations/opencode?opencode=error&reason=${encodeURIComponent(String(err?.message ?? err))}`);
+    }
   });
 
   r.post('/p/:slug/integrations/opencode/disconnect', requireSession, async (req: Request, res: Response) => {
@@ -1721,6 +1744,8 @@ function opencodeIntegrationPage(params: {
   integration: { status: string; connected_at: string | null; last_error: string | null } | null;
   creds: { expires_at: string | null; scopes: string | null; token_type: string | null; last_refresh_at: string | null } | null;
   runs: Array<{ id: string; status: string; created_at: string; started_at: string | null; finished_at: string | null; output_summary: string | null }>;
+  authMode: 'oauth' | 'local-cli';
+  localCliReady: boolean;
   canAdmin: boolean;
   notice?: { kind: 'success' | 'error'; title: string; message: string } | null;
   baseUrl: string;
@@ -1758,26 +1783,38 @@ function opencodeIntegrationPage(params: {
       <div class="muted" style="margin-top:6px">Last refresh: ${escapeHtml(creds?.last_refresh_at ?? '-')}</div>
       <div class="muted" style="margin-top:6px">Scopes: ${escapeHtml(scopes.length ? scopes.join(' ') : '-')}</div>
       <div class="muted" style="margin-top:6px">Last error: ${escapeHtml(integration?.last_error ?? '-')}</div>
+      <div class="muted" style="margin-top:6px">Auth mode: ${escapeHtml(params.authMode)}</div>
+      <div class="muted" style="margin-top:6px">Local CLI ready: ${params.localCliReady ? 'yes' : 'no'}</div>
     </div>
   `;
 
   const actions = canAdmin
-    ? `
-      <div class="card">
-        <div style="font-weight:900">Actions</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-          <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/connect">
-            <button class="btn btn-primary btn-md" type="submit">Connect</button>
-          </form>
-          <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/reconnect">
-            <button class="btn btn-secondary btn-md" type="submit">Reconnect</button>
-          </form>
-          <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/disconnect">
-            <button class="btn btn-secondary btn-md" type="submit">Disconnect</button>
-          </form>
+    ? params.authMode === 'oauth'
+      ? `
+        <div class="card">
+          <div style="font-weight:900">Actions</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+            <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/connect">
+              <button class="btn btn-primary btn-md" type="submit">Connect</button>
+            </form>
+            <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/reconnect">
+              <button class="btn btn-secondary btn-md" type="submit">Reconnect</button>
+            </form>
+            <form method="post" action="/p/${escapeHtml(p.slug)}/integrations/opencode/disconnect">
+              <button class="btn btn-secondary btn-md" type="submit">Disconnect</button>
+            </form>
+          </div>
         </div>
-      </div>
-    `
+      `
+      : `
+        <div class="card">
+          <div style="font-weight:900">Local CLI Mode</div>
+          <div class="muted" style="margin-top:6px">OAuth is disabled. Run <span class="mono">opencode login</span> in the app container, then enable Local CLI Ready in Settings.</div>
+          <div style="margin-top:12px">
+            <a class="btn btn-secondary btn-md" href="/p/${escapeHtml(p.slug)}/settings">Open Settings</a>
+          </div>
+        </div>
+      `
     : '';
 
   const webUrl = params.webConfig.url;
