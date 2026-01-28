@@ -1,4 +1,5 @@
 import { getProjectSecretPlain } from './project-secure-config';
+import type { ProjectSecretKey } from '../db/project-settings';
 import { getRuntimeConfig } from './secure-config';
 
 export type OpenCodeMode = 'github-actions' | 'server-runner' | 'off';
@@ -13,6 +14,8 @@ export type OpenCodePolicyConfig = {
   maxFilesChanged: number | null;
 };
 
+export type OpenCodeConfigWarning = { key: string; message: string };
+
 export type OpenCodeProjectConfig = {
   mode: OpenCodeMode;
   authMode: OpenCodeAuthMode;
@@ -22,6 +25,7 @@ export type OpenCodeProjectConfig = {
   model: string;
   workspaceRoot: string | null;
   policy: OpenCodePolicyConfig;
+  warnings?: OpenCodeConfigWarning[];
 };
 
 const DEFAULT_OPENCODE_COMMAND = '/opencode implement';
@@ -109,6 +113,17 @@ export function normalizeTimeoutMinutes(raw: string | null | undefined): number 
 }
 
 export async function getOpenCodeProjectConfig(projectId?: string | null): Promise<OpenCodeProjectConfig> {
+  const warnings: OpenCodeConfigWarning[] = [];
+  const readSafe = async (key: ProjectSecretKey): Promise<string | null> => {
+    if (!projectId) return null;
+    try {
+      return await getProjectSecretPlain(projectId, key);
+    } catch (err: any) {
+      warnings.push({ key, message: String(err?.message ?? err) });
+      return null;
+    }
+  };
+
   const [
     modeRaw,
     commandRaw,
@@ -120,20 +135,18 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     writeModeRaw,
     denyPathsRaw,
     maxFilesRaw,
-  ] = projectId
-    ? await Promise.all([
-        getProjectSecretPlain(projectId, 'OPENCODE_MODE'),
-        getProjectSecretPlain(projectId, 'OPENCODE_COMMAND'),
-        getProjectSecretPlain(projectId, 'OPENCODE_PR_TIMEOUT_MINUTES'),
-        getProjectSecretPlain(projectId, 'OPENCODE_MODEL'),
-        getProjectSecretPlain(projectId, 'OPENCODE_WORKSPACE_ROOT'),
-        getProjectSecretPlain(projectId, 'OPENCODE_AUTH_MODE'),
-        getProjectSecretPlain(projectId, 'OPENCODE_LOCAL_CLI_READY'),
-        getProjectSecretPlain(projectId, 'OPENCODE_POLICY_WRITE_MODE'),
-        getProjectSecretPlain(projectId, 'OPENCODE_POLICY_DENY_PATHS'),
-        getProjectSecretPlain(projectId, 'OPENCODE_POLICY_MAX_FILES_CHANGED'),
-      ])
-    : [null, null, null, null, null, null, null, null, null, null];
+  ] = await Promise.all([
+    readSafe('OPENCODE_MODE'),
+    readSafe('OPENCODE_COMMAND'),
+    readSafe('OPENCODE_PR_TIMEOUT_MINUTES'),
+    readSafe('OPENCODE_MODEL'),
+    readSafe('OPENCODE_WORKSPACE_ROOT'),
+    readSafe('OPENCODE_AUTH_MODE'),
+    readSafe('OPENCODE_LOCAL_CLI_READY'),
+    readSafe('OPENCODE_POLICY_WRITE_MODE'),
+    readSafe('OPENCODE_POLICY_DENY_PATHS'),
+    readSafe('OPENCODE_POLICY_MAX_FILES_CHANGED'),
+  ]);
 
   const runtime = await getRuntimeConfig();
   const mode =
@@ -164,6 +177,7 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     model,
     workspaceRoot,
     policy: { writeMode, denyPaths, maxFilesChanged },
+    warnings: warnings.length ? warnings : undefined,
   };
 }
 

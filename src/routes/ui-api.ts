@@ -23,6 +23,7 @@ import {
   removeProjectGithubRepo,
   setDefaultRepo,
   upsertProjectKnowledge,
+  type ProjectSecretKey,
 } from '../db/project-settings';
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getIntegrationByProjectType } from '../db/integrations';
@@ -1192,11 +1193,21 @@ export function uiApiRouter(): Router {
       listProjectApiTokens(access.project.id),
     ]);
 
+    const secretErrors: Array<{ key: string; message: string }> = [];
+    const readSecretSafe = async (key: ProjectSecretKey): Promise<string | null> => {
+      try {
+        return await getProjectSecretPlain(access.project.id, key);
+      } catch (err: any) {
+        secretErrors.push({ key, message: String(err?.message ?? err) });
+        return null;
+      }
+    };
+
     const secrets = {
-      asanaPat: Boolean(await getProjectSecretPlain(access.project.id, 'ASANA_PAT')),
-      githubToken: Boolean(await getProjectSecretPlain(access.project.id, 'GITHUB_TOKEN')),
-      githubWebhookSecret: Boolean(await getProjectSecretPlain(access.project.id, 'GITHUB_WEBHOOK_SECRET')),
-      opencodeWorkdir: Boolean(await getProjectSecretPlain(access.project.id, 'OPENCODE_WORKDIR')),
+      asanaPat: Boolean(await readSecretSafe('ASANA_PAT')),
+      githubToken: Boolean(await readSecretSafe('GITHUB_TOKEN')),
+      githubWebhookSecret: Boolean(await readSecretSafe('GITHUB_WEBHOOK_SECRET')),
+      opencodeWorkdir: Boolean(await readSecretSafe('OPENCODE_WORKDIR')),
     };
 
     const opencode = await getOpenCodeProjectConfig(access.project.id);
@@ -1205,6 +1216,7 @@ export function uiApiRouter(): Router {
       project: { id: access.project.id, slug: access.project.slug, name: access.project.name },
       role: access.membership.role,
       secrets,
+      secretErrors: secretErrors.length ? secretErrors : undefined,
       opencode,
       asanaFields,
       statusMap,

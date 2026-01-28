@@ -13,11 +13,7 @@ export async function getConfig(key: SecretKey): Promise<string | null> {
       await upsertAppSecret(key, reEncrypted);
       return raw;
     }
-    try {
-      return decryptString(raw, masterKey);
-    } catch {
-      return null;
-    }
+    return decryptString(raw, masterKey);
   }
 
   const fromEnv = process.env[key];

@@ -25,6 +25,7 @@ import { Switch } from '@/components/ui/switch';
 
 type SettingsData = {
   secrets: { asanaPat: boolean; githubToken: boolean; githubWebhookSecret: boolean; opencodeWorkdir: boolean };
+  secretErrors?: Array<{ key: string; message: string }>;
   opencode: {
     mode: string;
     authMode: string;
@@ -34,6 +35,7 @@ type SettingsData = {
     model: string;
     workspaceRoot: string | null;
     policy: { writeMode: string; denyPaths: string[]; maxFilesChanged: number | null };
+    warnings?: Array<{ key: string; message: string }>;
   };
   asanaFields: { workspace_gid: string | null; auto_field_gid: string | null; repo_field_gid: string | null; status_field_gid: string | null } | null;
   statusMap: Array<{ option_name: string; mapped_status: string }>;
@@ -938,6 +940,27 @@ export function SettingsPage() {
           Refresh
         </Button>
       </div>
+
+      {(settings?.secretErrors?.length || settings?.opencode?.warnings?.length) && (
+        <Card className="border-2 border-destructive">
+          <CardHeader>
+            <CardTitle>Configuration warnings</CardTitle>
+            <CardDescription>Some stored secrets could not be decrypted. Please re-save them.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {settings?.secretErrors?.map((err, idx) => (
+              <div key={`secret-${idx}`} className="text-destructive">
+                Secret {err.key}: {err.message}
+              </div>
+            ))}
+            {settings?.opencode?.warnings?.map((err, idx) => (
+              <div key={`oc-${idx}`} className="text-destructive">
+                OpenCode {err.key}: {err.message}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-4">
         <Card className="border-2 border-border lg:col-span-1 h-fit">
