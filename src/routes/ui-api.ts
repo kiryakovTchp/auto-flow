@@ -24,6 +24,7 @@ import {
   setDefaultRepo,
   upsertProjectKnowledge,
   type ProjectSecretKey,
+  deleteProjectSecret,
 } from '../db/project-settings';
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getIntegrationByProjectType } from '../db/integrations';
@@ -1289,6 +1290,54 @@ export function uiApiRouter(): Router {
     await setProjectSecret(access.project.id, 'OPENCODE_POLICY_DENY_PATHS', normalizeDenyPaths(policyDenyPathsRaw).join('\n'));
 
     res.status(200).json({ ok: true });
+  });
+
+  r.post('/projects/:slug/settings/secrets/reset', async (req: AuthedReq, res: Response) => {
+    const slug = String(req.params.slug);
+    const access = await getProjectAccess(req, res, slug, { admin: true });
+    if (!access) return;
+
+    const keysRaw = (req.body as any)?.keys;
+    if (!Array.isArray(keysRaw) || !keysRaw.length) {
+      jsonError(res, 400, 'keys must be a non-empty array');
+      return;
+    }
+
+    const allowed: ProjectSecretKey[] = [
+      'ASANA_PAT',
+      'GITHUB_TOKEN',
+      'GITHUB_WEBHOOK_SECRET',
+      'ASANA_WEBHOOK_SECRET',
+      'OPENCODE_WORKDIR',
+      'OPENCODE_MODE',
+      'OPENCODE_COMMAND',
+      'OPENCODE_PR_TIMEOUT_MINUTES',
+      'OPENCODE_MODEL',
+      'OPENCODE_WORKSPACE_ROOT',
+      'OPENCODE_AUTH_MODE',
+      'OPENCODE_LOCAL_CLI_READY',
+      'OPENCODE_POLICY_WRITE_MODE',
+      'OPENCODE_POLICY_DENY_PATHS',
+      'OPENCODE_POLICY_MAX_FILES_CHANGED',
+      'OPENAI_API_KEY',
+    ];
+    const allowedSet = new Set<ProjectSecretKey>(allowed);
+
+    const keys = keysRaw
+      .map((k) => String(k).trim())
+      .filter(Boolean)
+      .filter((k) => allowedSet.has(k as ProjectSecretKey)) as ProjectSecretKey[];
+
+    if (!keys.length) {
+      jsonError(res, 400, 'No valid keys provided');
+      return;
+    }
+
+    for (const key of keys) {
+      await deleteProjectSecret({ projectId: access.project.id, key });
+    }
+
+    res.status(200).json({ ok: true, cleared: keys });
   });
 
   r.post('/projects/:slug/settings/asana-fields', async (req: AuthedReq, res: Response) => {

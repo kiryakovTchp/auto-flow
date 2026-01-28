@@ -166,6 +166,31 @@ export function SettingsPage() {
     }
   };
 
+  const resetBrokenSecrets = async () => {
+    if (!canManage || !currentProject || !settings) return;
+    const keys = Array.from(
+      new Set([
+        ...(settings.secretErrors?.map((e) => e.key) ?? []),
+        ...(settings.opencode?.warnings?.map((e) => e.key) ?? []),
+      ]),
+    );
+    if (!keys.length) {
+      toast({ title: 'No broken secrets', description: 'Nothing to reset.' });
+      return;
+    }
+    if (!window.confirm(`Reset ${keys.length} secret(s)? This will clear them.`)) return;
+    try {
+      await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/settings/secrets/reset`, {
+        method: 'POST',
+        body: { keys },
+      });
+      toast({ title: 'Secrets reset', description: 'Please re-save the affected secrets.' });
+      await refresh();
+    } catch (err: any) {
+      toast({ title: 'Reset failed', description: err?.message || 'Could not reset secrets.', variant: 'destructive' });
+    }
+  };
+
   const submitAsanaFields = async () => {
     if (!canManage) return;
     try {
@@ -958,6 +983,9 @@ export function SettingsPage() {
                 OpenCode {err.key}: {err.message}
               </div>
             ))}
+            <div>
+              <Button variant="destructive" onClick={resetBrokenSecrets}>Reset broken secrets</Button>
+            </div>
           </CardContent>
         </Card>
       )}

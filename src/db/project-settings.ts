@@ -42,6 +42,10 @@ export async function getProjectSecret(params: { projectId: string; key: Project
   return res.rows[0]?.encrypted_value ?? null;
 }
 
+export async function deleteProjectSecret(params: { projectId: string; key: ProjectSecretKey }): Promise<void> {
+  await pool.query('delete from project_secrets where project_id = $1 and key = $2', [params.projectId, params.key]);
+}
+
 export async function listProjectAsanaProjects(projectId: string): Promise<string[]> {
   const res = await pool.query<{ asana_project_gid: string }>(
     'select asana_project_gid from project_asana_projects where project_id = $1 order by asana_project_gid asc',

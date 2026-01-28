@@ -41,6 +41,7 @@ export function IntegrationsPage() {
   const asanaConnected = Boolean(settings?.secrets.asanaPat && settings?.asanaProjects?.length);
   const githubConnected = Boolean(settings?.secrets.githubToken && settings?.repos?.length);
   const opencodeConnected = opencode?.status === 'connected';
+  const opencodeAuthMode = opencode?.config?.authMode ?? 'oauth';
 
   const connectOpenCode = async () => {
     if (!currentProject) return;
@@ -196,6 +197,10 @@ export function IntegrationsPage() {
                     <Button variant="outline" className="border-2" onClick={disconnectOpenCode}>
                       Disconnect
                     </Button>
+                  ) : opencodeAuthMode === 'local-cli' ? (
+                    <Button variant="outline" className="border-2" asChild>
+                      <Link to={`/p/${currentProject.slug}/settings`}>Open Settings</Link>
+                    </Button>
                   ) : (
                     <Button onClick={connectOpenCode} className="shadow-xs">
                       Connect
@@ -204,14 +209,14 @@ export function IntegrationsPage() {
                 )}
               </div>
             </CardHeader>
-            {!opencodeConnected && opencode?.config?.authMode === 'local-cli' && (
+            {!opencodeConnected && opencodeAuthMode === 'local-cli' && (
               <CardContent>
                 <div className="text-sm text-muted-foreground">
-                  OAuth is disabled. Run <span className="font-mono">opencode login</span> on the server and enable Local CLI Ready in Settings.
+                  OAuth is disabled. Run <span className="font-mono">opencode auth login</span> on the server and enable Local CLI Ready in Settings.
                 </div>
               </CardContent>
             )}
-            {!opencodeConnected && opencode?.config?.authMode !== 'local-cli' && (
+            {!opencodeConnected && opencodeAuthMode !== 'local-cli' && (
               <CardContent>
                 <EmptyState
                   icon={Settings}
