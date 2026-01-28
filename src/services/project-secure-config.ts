@@ -18,5 +18,9 @@ export async function getProjectSecretPlain(projectId: string, key: ProjectSecre
     await upsertProjectSecret({ projectId, key, encryptedValue: reEncrypted });
     return raw;
   }
-  return decryptString(raw, masterKey);
+  try {
+    return decryptString(raw, masterKey);
+  } catch {
+    return null;
+  }
 }
