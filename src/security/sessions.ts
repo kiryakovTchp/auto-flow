@@ -43,6 +43,31 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
   next();
 }
 
+export async function requireSessionJson(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const sid = (req as any).cookies?.[SESSION_COOKIE];
+  if (!sid || typeof sid !== 'string') {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const session = await getSession(sid);
+  if (!session) {
+    res.clearCookie(SESSION_COOKIE);
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const user = await getUserById(session.user_id);
+  if (!user) {
+    res.clearCookie(SESSION_COOKIE);
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  (req as any).auth = { userId: user.id, username: user.username };
+  next();
+}
+
 export async function optionalSession(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const sid = (req as any).cookies?.[SESSION_COOKIE];
   if (sid && typeof sid === 'string') {

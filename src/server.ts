@@ -8,10 +8,10 @@ import { logger } from './logger/logger';
 import { ensureDefaultAdminUser } from './db/bootstrap';
 import { adminProtectedApiRouter } from './routes/admin-protected';
 import { adminUiProtectedRouter } from './routes/admin-ui-protected';
-import { authUiRouter } from './routes/auth-ui';
-import { projectWebhooksUiRouter } from './routes/auth-ui-webhooks';
-import { projectTasksUiRouter } from './routes/project-tasks-ui';
-import { asanaImportUiRouter } from './routes/asana-import-ui';
+import path from 'node:path';
+import fs from 'node:fs';
+
+import { uiApiRouter } from './routes/ui-api';
 import { apiV1Router } from './routes/api-v1';
 import { runMigrations } from './db/migrations';
 import { asanaWebhookHandler } from './webhooks/asana-handler';
@@ -72,13 +72,24 @@ app.get('/metrics', async (req: Request, res: Response) => {
   }
 });
 
-// New session-based UI
-app.use(authUiRouter());
-app.use(projectWebhooksUiRouter());
-app.use(projectTasksUiRouter());
-app.use(asanaImportUiRouter());
+// UI API
+app.use('/api/ui', uiApiRouter());
 
 app.use('/api/v1', apiV1Router());
+
+const uiDistPath = path.resolve(__dirname, '..', 'public', 'ui');
+const uiIndexPath = path.join(uiDistPath, 'index.html');
+if (fs.existsSync(uiDistPath)) {
+  app.use(express.static(uiDistPath));
+}
+
+app.get(['/', '/login', '/init', '/invite/:token', '/projects', '/docs', '/p/:slug', '/p/:slug/*'], (req: Request, res: Response) => {
+  if (!fs.existsSync(uiIndexPath)) {
+    res.status(503).send('UI build not found. Run the UI build to generate public/ui.');
+    return;
+  }
+  res.status(200).sendFile(uiIndexPath);
+});
 
 // Legacy Basic-Auth admin UI (kept temporarily)
 app.use('/admin', adminUiProtectedRouter());
