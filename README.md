@@ -47,8 +47,8 @@ Task statuses (source of truth: `src/db/tasks-v2.ts`):
 - Webhooks:
   - Asana: `POST /webhooks/asana` (+ per-project `POST /webhooks/asana/:projectId`)
   - GitHub: `POST /webhooks/github` (+ per-project `POST /webhooks/github/:projectId`)
-- UI (server-rendered HTML, no frontend framework):
-  - `/init`, `/login`, `/app`, `/p/:slug/*` (cookie sessions)
+- UI (React SPA, source in `ui/`, built into `public/ui`):
+  - `/`, `/login`, `/init`, `/invite/:token`, `/projects`, `/p/:slug/*`
   - legacy `/admin` (Basic Auth)
 - Public endpoints:
   - `GET /health`
@@ -72,6 +72,13 @@ Install deps:
 
 ```
 npm ci
+cd ui && npm ci
+```
+
+Build UI (outputs to `public/ui`):
+
+```
+cd ui && npm run build
 ```
 
 Create env file:
@@ -93,7 +100,7 @@ The server runs SQL migrations automatically on startup.
 1) Set `INIT_ADMIN_TOKEN` (in `.env` or in deploy env).
 2) Open `http://localhost:3000/init?token=<INIT_ADMIN_TOKEN>` and create the first admin.
 3) Login at `http://localhost:3000/login`.
-4) Create a project in `/app`.
+4) Create a project in `/projects`.
 5) In project settings (`/p/<slug>/settings`) configure:
    - Asana secrets + custom fields
    - GitHub token
@@ -153,3 +160,4 @@ Production-ish Docker + Caddy setup lives in `deploy/`.
 - `npm run dev` – dev server (ts-node-dev)
 - `npm run build` – TypeScript build (`dist/`)
 - `npm start` – run compiled server
+- `cd ui && npm run build` – build SPA into `public/ui`

@@ -2,7 +2,7 @@
 
 ## CI
 
-GitHub Actions runs `npm run build` on PRs and pushes to `main`.
+GitHub Actions runs `npm run build` for the server and `npm run build` in `ui/` for the SPA on PRs and pushes to `main`.
 
 Workflow: `.github/workflows/ci.yml`
 

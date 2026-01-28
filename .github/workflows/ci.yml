@@ -22,3 +22,11 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Install UI
+        run: npm ci
+        working-directory: ui
+
+      - name: Build UI
+        run: npm run build
+        working-directory: ui

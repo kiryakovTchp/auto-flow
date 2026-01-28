@@ -46,6 +46,7 @@ Then set username/password.
 
 - Encryption master key is stored in a Docker volume mounted at `/app/data`.
 - SQL migrations are executed automatically on app start.
+- The Docker image builds the UI from `ui/` into `public/ui` during image build.
 - `/metrics` is protected by `METRICS_TOKEN` if set (Authorization: Bearer ...). If not set, it is only accessible from localhost.
 - For server-runner, set Workspace Root in project settings (e.g. `/var/lib/opencode/workspaces`).
 ## Staging + prod

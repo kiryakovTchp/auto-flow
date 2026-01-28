@@ -8,6 +8,12 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
+COPY ui/package.json ui/package-lock.json* ./ui/
+RUN npm ci --prefix ui
+
+COPY ui ./ui
+RUN npm run build --prefix ui
+
 
 FROM node:20-bullseye-slim AS runtime
 WORKDIR /app
@@ -24,6 +30,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/public ./public
 
 # SQL migrations are loaded from src/db/sql at runtime.
 COPY src/db/sql ./src/db/sql
