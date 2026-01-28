@@ -83,7 +83,7 @@ if (fs.existsSync(uiDistPath)) {
   app.use(express.static(uiDistPath));
 }
 
-app.get(['/', '/login', '/init', '/invite/:token', '/projects', '/docs', '/p/:slug', '/p/:slug/*'], (req: Request, res: Response) => {
+app.get(['/', '/login', '/init', '/invite/:token', '/projects', '/docs', '/p/:slug', '/p/:slug/:path*'], (req: Request, res: Response) => {
   if (!fs.existsSync(uiIndexPath)) {
     res.status(503).send('UI build not found. Run the UI build to generate public/ui.');
     return;
