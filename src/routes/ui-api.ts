@@ -40,7 +40,7 @@ import { GithubClient } from '../integrations/github';
 import { finalizeTaskIfReady } from '../services/finalize';
 import { importAsanaTasksForProject } from '../services/import-from-asana';
 import { processAsanaTaskStage5 } from '../services/pipeline-stage5';
-import { getProjectSecretPlain, setProjectSecret } from '../services/project-secure-config';
+import { getProjectSecretPlain, repairProjectSecrets, setProjectSecret } from '../services/project-secure-config';
 import { getRuntimeConfig } from '../services/secure-config';
 import { syncReposToAsanaRepoField } from '../services/sync-repos-to-asana';
 import { joinUrl } from '../services/url';
@@ -1338,6 +1338,15 @@ export function uiApiRouter(): Router {
     }
 
     res.status(200).json({ ok: true, cleared: keys });
+  });
+
+  r.post('/projects/:slug/settings/secrets/repair', async (req: AuthedReq, res: Response) => {
+    const slug = String(req.params.slug);
+    const access = await getProjectAccess(req, res, slug, { admin: true });
+    if (!access) return;
+
+    const result = await repairProjectSecrets(access.project.id);
+    res.status(200).json({ ok: true, result });
   });
 
   r.post('/projects/:slug/settings/asana-fields', async (req: AuthedReq, res: Response) => {

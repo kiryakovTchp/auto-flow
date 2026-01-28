@@ -191,6 +191,27 @@ export function SettingsPage() {
     }
   };
 
+  const repairBrokenSecrets = async () => {
+    if (!canManage || !currentProject) return;
+    if (!window.confirm('Repair secrets? Corrupted values will be cleared.')) return;
+    try {
+      const res = await apiFetch<{ result: { repaired: string[]; cleared: string[]; failed: Array<{ key: string; message: string }> } }>(
+        `/projects/${encodeURIComponent(currentProject.slug)}/settings/secrets/repair`,
+        { method: 'POST' },
+      );
+      const repaired = res.result.repaired?.length ?? 0;
+      const cleared = res.result.cleared?.length ?? 0;
+      const failed = res.result.failed?.length ?? 0;
+      toast({
+        title: 'Secrets repaired',
+        description: `Repaired: ${repaired}, cleared: ${cleared}, failed: ${failed}. Please re-save cleared secrets.`,
+      });
+      await refresh();
+    } catch (err: any) {
+      toast({ title: 'Repair failed', description: err?.message || 'Could not repair secrets.', variant: 'destructive' });
+    }
+  };
+
   const submitAsanaFields = async () => {
     if (!canManage) return;
     try {
@@ -983,7 +1004,8 @@ export function SettingsPage() {
                 OpenCode {err.key}: {err.message}
               </div>
             ))}
-            <div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={repairBrokenSecrets}>Repair broken secrets</Button>
               <Button variant="destructive" onClick={resetBrokenSecrets}>Reset broken secrets</Button>
             </div>
           </CardContent>

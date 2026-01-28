@@ -42,6 +42,14 @@ export async function getProjectSecret(params: { projectId: string; key: Project
   return res.rows[0]?.encrypted_value ?? null;
 }
 
+export async function listProjectSecrets(projectId: string): Promise<Array<{ key: ProjectSecretKey; encrypted_value: string }>> {
+  const res = await pool.query<{ key: ProjectSecretKey; encrypted_value: string }>(
+    'select key, encrypted_value from project_secrets where project_id = $1 order by key asc',
+    [projectId],
+  );
+  return res.rows;
+}
+
 export async function deleteProjectSecret(params: { projectId: string; key: ProjectSecretKey }): Promise<void> {
   await pool.query('delete from project_secrets where project_id = $1 and key = $2', [params.projectId, params.key]);
 }

@@ -1,4 +1,4 @@
-import { getProjectSecret, type ProjectSecretKey, upsertProjectSecret } from '../db/project-settings';
+import { deleteProjectSecret, getProjectSecret, listProjectSecrets, type ProjectSecretKey, upsertProjectSecret } from '../db/project-settings';
 import { decryptString, encryptString, isEncryptedPayload, loadOrCreateMasterKey } from '../security/crypto-store';
 
 const masterKey = loadOrCreateMasterKey();
@@ -19,4 +19,42 @@ export async function getProjectSecretPlain(projectId: string, key: ProjectSecre
     return raw;
   }
   return decryptString(raw, masterKey);
+}
+
+export async function repairProjectSecrets(projectId: string): Promise<{
+  repaired: ProjectSecretKey[];
+  cleared: ProjectSecretKey[];
+  ok: ProjectSecretKey[];
+  failed: Array<{ key: ProjectSecretKey; message: string }>;
+}> {
+  const rows = await listProjectSecrets(projectId);
+  const repaired: ProjectSecretKey[] = [];
+  const cleared: ProjectSecretKey[] = [];
+  const ok: ProjectSecretKey[] = [];
+  const failed: Array<{ key: ProjectSecretKey; message: string }> = [];
+
+  for (const row of rows) {
+    const raw = String(row.encrypted_value ?? '').trim();
+    if (!raw) {
+      await deleteProjectSecret({ projectId, key: row.key });
+      cleared.push(row.key);
+      continue;
+    }
+    if (!isEncryptedPayload(raw)) {
+      const reEncrypted = encryptString(raw, masterKey);
+      await upsertProjectSecret({ projectId, key: row.key, encryptedValue: reEncrypted });
+      repaired.push(row.key);
+      continue;
+    }
+    try {
+      decryptString(raw, masterKey);
+      ok.push(row.key);
+    } catch (err: any) {
+      await deleteProjectSecret({ projectId, key: row.key });
+      cleared.push(row.key);
+      failed.push({ key: row.key, message: String(err?.message ?? err) });
+    }
+  }
+
+  return { repaired, cleared, ok, failed };
 }
