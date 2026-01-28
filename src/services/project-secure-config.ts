@@ -1,5 +1,5 @@
-import { decryptString, encryptString, loadOrCreateMasterKey } from '../security/crypto-store';
 import { getProjectSecret, type ProjectSecretKey, upsertProjectSecret } from '../db/project-settings';
+import { decryptString, encryptString, isEncryptedPayload, loadOrCreateMasterKey } from '../security/crypto-store';
 
 const masterKey = loadOrCreateMasterKey();
 
@@ -11,5 +11,12 @@ export async function setProjectSecret(projectId: string, key: ProjectSecretKey,
 export async function getProjectSecretPlain(projectId: string, key: ProjectSecretKey): Promise<string | null> {
   const encrypted = await getProjectSecret({ projectId, key });
   if (!encrypted) return null;
-  return decryptString(encrypted, masterKey);
+  const raw = encrypted.trim();
+  if (!raw) return null;
+  if (!isEncryptedPayload(raw)) {
+    const reEncrypted = encryptString(raw, masterKey);
+    await upsertProjectSecret({ projectId, key, encryptedValue: reEncrypted });
+    return raw;
+  }
+  return decryptString(raw, masterKey);
 }

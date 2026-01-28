@@ -38,3 +38,7 @@ export function decryptString(payload: string, key: Buffer): string {
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   return plaintext.toString('utf8');
 }
+
+export function isEncryptedPayload(payload: string): boolean {
+  return payload.startsWith('v1:');
+}

@@ -1,11 +1,20 @@
-import { decryptString, encryptString, loadOrCreateMasterKey } from '../security/crypto-store';
 import { deleteAppSecret, getAppSecret, type SecretKey, upsertAppSecret } from '../db/app-secrets';
+import { decryptString, encryptString, isEncryptedPayload, loadOrCreateMasterKey } from '../security/crypto-store';
 
 const masterKey = loadOrCreateMasterKey();
 
 export async function getConfig(key: SecretKey): Promise<string | null> {
   const encrypted = await getAppSecret(key);
-  if (encrypted) return decryptString(encrypted, masterKey);
+  if (encrypted) {
+    const raw = encrypted.trim();
+    if (!raw) return null;
+    if (!isEncryptedPayload(raw)) {
+      const reEncrypted = encryptString(raw, masterKey);
+      await upsertAppSecret(key, reEncrypted);
+      return raw;
+    }
+    return decryptString(raw, masterKey);
+  }
 
   const fromEnv = process.env[key];
   return typeof fromEnv === 'string' && fromEnv.length ? fromEnv : null;
