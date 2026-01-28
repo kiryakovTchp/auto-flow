@@ -40,8 +40,9 @@ export function IntegrationsPage() {
 
   const asanaConnected = Boolean(settings?.secrets.asanaPat && settings?.asanaProjects?.length);
   const githubConnected = Boolean(settings?.secrets.githubToken && settings?.repos?.length);
-  const opencodeConnected = opencode?.status === 'connected';
   const opencodeAuthMode = opencode?.config?.authMode ?? 'oauth';
+  const opencodeConnected =
+    opencode?.status === 'connected' || (opencodeAuthMode === 'local-cli' && opencode?.config?.localCliReady);
 
   const connectOpenCode = async () => {
     if (!currentProject) return;
@@ -214,6 +215,11 @@ export function IntegrationsPage() {
                 <div className="text-sm text-muted-foreground">
                   OAuth is disabled. Run <span className="font-mono">opencode auth login</span> on the server and enable Local CLI Ready in Settings.
                 </div>
+              </CardContent>
+            )}
+            {opencodeConnected && opencodeAuthMode === 'local-cli' && (
+              <CardContent>
+                <div className="text-sm text-muted-foreground">Local CLI authenticated.</div>
               </CardContent>
             )}
             {!opencodeConnected && opencodeAuthMode !== 'local-cli' && (
