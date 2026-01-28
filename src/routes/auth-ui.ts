@@ -1809,7 +1809,7 @@ function opencodeIntegrationPage(params: {
       : `
         <div class="card">
           <div style="font-weight:900">Local CLI Mode</div>
-          <div class="muted" style="margin-top:6px">OAuth is disabled. Run <span class="mono">opencode login</span> in the app container, then enable Local CLI Ready in Settings.</div>
+          <div class="muted" style="margin-top:6px">OAuth is disabled. Run <span class="mono">opencode auth login</span> in the app container, then enable Local CLI Ready in Settings.</div>
           <div style="margin-top:12px">
             <a class="btn btn-secondary btn-md" href="/p/${escapeHtml(p.slug)}/settings">Open Settings</a>
           </div>
@@ -2095,7 +2095,7 @@ function projectSettingsPage(
               <input name="opencode_local_cli_ready" type="checkbox" ${opencodeCfg.localCliReady ? 'checked' : ''} />
               <span>OpenCode CLI is logged in on the server</span>
             </label>
-            <div class="helper">Run: <span class="mono">docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app opencode login</span></div>
+            <div class="helper">Run: <span class="mono">docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app opencode auth login</span></div>
           </div>
           <div class="form-group">
             <label>Max files changed</label>

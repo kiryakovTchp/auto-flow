@@ -22,7 +22,7 @@ permissions:
 ## Secrets
 - github-actions: store LLM provider keys in GitHub Actions secrets.
 - server-runner: store OpenCode OAuth tokens in Auto-Flow (encrypted); CLI receives access token at runtime.
-- server-runner (local-cli): tokens stored in `/root/.opencode` volume inside the app container.
+- server-runner (local-cli): tokens stored in `/root/.local/share/opencode/auth.json` inside the app container.
 
 ## Policy gates
 - server-runner enforces policy checks before commit/PR:

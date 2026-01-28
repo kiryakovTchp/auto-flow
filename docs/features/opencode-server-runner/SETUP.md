@@ -43,7 +43,7 @@ If you use the Docker deployment, the image already includes `opencode` and `git
 1) Login inside the app container:
 
 ```
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app opencode login
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app opencode auth login
 ```
 
 2) In project settings, enable **Local CLI Ready**.

@@ -39,7 +39,7 @@ services:
     volumes:
       # Persist encryption master key + any future local state
       - auto_flow_data:/app/data
-      - opencode_data:/root/.opencode
+      - opencode_data:/root/.local/share/opencode
 
   caddy:
     image: caddy:2-alpine
@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
     command: ["opencode", "web", "--hostname", "0.0.0.0", "--port", "4096"]
     volumes:
-      - opencode_data:/root/.opencode
+      - opencode_data:/root/.local/share/opencode
 
 volumes:
   auto_flow_pgdata:

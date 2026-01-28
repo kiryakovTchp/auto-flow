@@ -56,19 +56,21 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       await markTaskFailed(
         params.projectId,
         task,
-        'Local CLI not ready. Run `opencode login` in the app container and enable Local CLI Ready in settings.',
+        'Local CLI not ready. Run `opencode auth login` in the app container and enable Local CLI Ready in settings.',
       );
       return;
     }
     const homeDir = process.env.HOME || '/root';
-    const credsDir = path.join(homeDir, '.opencode');
-    try {
-      await fs.promises.access(credsDir);
-    } catch {
+    const dataHome = process.env.XDG_DATA_HOME || path.join(homeDir, '.local', 'share');
+    const authFile = path.join(dataHome, 'opencode', 'auth.json');
+    const legacyDir = path.join(homeDir, '.opencode');
+    const hasAuth = await fileExists(authFile);
+    const hasLegacy = await pathExists(legacyDir);
+    if (!hasAuth && !hasLegacy) {
       await markTaskFailed(
         params.projectId,
         task,
-        `OpenCode local CLI credentials not found at ${credsDir}. Run 'opencode login' in the app container.`,
+        `OpenCode local CLI credentials not found. Run 'opencode auth login' in the app container.`,
       );
       return;
     }
@@ -400,6 +402,24 @@ function globToRegExp(pattern: string): RegExp {
     .replace(/\\\*\\\*/g, '.*')
     .replace(/\\\*/g, '[^/]*');
   return new RegExp(`^${withGlob}$`);
+}
+
+async function pathExists(value: string): Promise<boolean> {
+  try {
+    await fs.promises.access(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function fileExists(value: string): Promise<boolean> {
+  try {
+    const stat = await fs.promises.stat(value);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
 }
 
 function evaluatePolicies(files: string[], policy: OpenCodePolicyConfig): string | null {

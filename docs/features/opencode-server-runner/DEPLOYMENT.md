@@ -16,7 +16,7 @@ curl -fsSL https://opencode.ai/install | bash
 ### 2) Ensure Auto-Flow user has access
 - `opencode` is on PATH for the Auto-Flow process.
 - `OPENCODE_WORKSPACE_ROOT` is writable by Auto-Flow.
-- CLI tokens (local-cli) are stored in `/root/.opencode` (Docker volume `opencode_data`).
+- CLI tokens (local-cli) are stored in `/root/.local/share/opencode` (Docker volume `opencode_data`).
 
 ### 3) Configure project settings
 - Mode: `server-runner`
