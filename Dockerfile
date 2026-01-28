@@ -24,7 +24,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://opencode.ai/install | bash
-ENV PATH="/root/.opencode/bin:${PATH}"
+ENV PATH="/root/.opencode/bin:/root/.local/bin:${PATH}"
 
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
