@@ -26,6 +26,8 @@ export type OpenCodeProjectConfig = {
   prTimeoutMinutes: number;
   model: string;
   workspaceRoot: string | null;
+  systemPrompt: string | null;
+  configJson: string | null;
   policy: OpenCodePolicyConfig;
   warnings?: OpenCodeConfigWarning[];
 };
@@ -141,6 +143,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     timeoutRaw,
     modelRaw,
     workspaceRootRaw,
+    systemPromptRaw,
+    configJsonRaw,
     logModeRaw,
     authModeRaw,
     localCliReadyRaw,
@@ -153,6 +157,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     readSafe('OPENCODE_PR_TIMEOUT_MINUTES'),
     readSafe('OPENCODE_MODEL'),
     readSafe('OPENCODE_WORKSPACE_ROOT'),
+    readSafe('OPENCODE_SYSTEM_PROMPT'),
+    readSafe('OPENCODE_CONFIG_JSON'),
     readSafe('OPENCODE_LOG_MODE'),
     readSafe('OPENCODE_AUTH_MODE'),
     readSafe('OPENCODE_LOCAL_CLI_READY'),
@@ -173,6 +179,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
   const prTimeoutMinutes = normalizeTimeoutMinutes(timeoutRaw ?? timeoutFromEnv);
   const model = String(modelRaw ?? '').trim() || DEFAULT_OPENCODE_MODEL;
   const workspaceRoot = String(workspaceRootRaw ?? '').trim() || null;
+  const systemPrompt = String(systemPromptRaw ?? '').trim() || null;
+  const configJson = String(configJsonRaw ?? '').trim() || null;
 
   const authMode = normalizeAuthMode(authModeRaw) ?? DEFAULT_AUTH_MODE;
   const localCliReady = normalizeBoolFlag(localCliReadyRaw);
@@ -191,6 +199,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     prTimeoutMinutes,
     model,
     workspaceRoot,
+    systemPrompt,
+    configJson,
     policy: { writeMode, denyPaths, maxFilesChanged },
     warnings: warnings.length ? warnings : undefined,
   };

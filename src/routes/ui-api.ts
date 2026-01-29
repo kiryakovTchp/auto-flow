@@ -1357,6 +1357,8 @@ export function uiApiRouter(): Router {
     const modelRaw = String((req.body as any)?.opencode_model ?? '').trim();
     const workspaceRootRaw = String((req.body as any)?.opencode_workspace_root ?? '').trim();
     const logModeRaw = String((req.body as any)?.opencode_log_mode ?? '').trim();
+    const systemPromptRaw = String((req.body as any)?.opencode_system_prompt ?? '').trim();
+    const configJsonRaw = String((req.body as any)?.opencode_config_json ?? '').trim();
     const authModeRaw = String((req.body as any)?.opencode_auth_mode ?? '').trim();
     const localCliReadyRaw = String((req.body as any)?.opencode_local_cli_ready ?? '').trim();
     const policyWriteModeRaw = String((req.body as any)?.opencode_policy_write_mode ?? '').trim();
@@ -1371,6 +1373,16 @@ export function uiApiRouter(): Router {
     if (workspaceRootRaw) await setProjectSecret(access.project.id, 'OPENCODE_WORKSPACE_ROOT', workspaceRootRaw);
     const logMode = normalizeLogMode(logModeRaw);
     if (logMode) await setProjectSecret(access.project.id, 'OPENCODE_LOG_MODE', logMode);
+    if (systemPromptRaw) {
+      await setProjectSecret(access.project.id, 'OPENCODE_SYSTEM_PROMPT', systemPromptRaw);
+    } else {
+      await deleteProjectSecret({ projectId: access.project.id, key: 'OPENCODE_SYSTEM_PROMPT' });
+    }
+    if (configJsonRaw) {
+      await setProjectSecret(access.project.id, 'OPENCODE_CONFIG_JSON', configJsonRaw);
+    } else {
+      await deleteProjectSecret({ projectId: access.project.id, key: 'OPENCODE_CONFIG_JSON' });
+    }
     const authMode = normalizeAuthMode(authModeRaw);
     if (authMode) await setProjectSecret(access.project.id, 'OPENCODE_AUTH_MODE', authMode);
     await setProjectSecret(access.project.id, 'OPENCODE_LOCAL_CLI_READY', localCliReadyRaw ? '1' : '');
@@ -1407,6 +1419,9 @@ export function uiApiRouter(): Router {
       'OPENCODE_PR_TIMEOUT_MINUTES',
       'OPENCODE_MODEL',
       'OPENCODE_WORKSPACE_ROOT',
+      'OPENCODE_LOG_MODE',
+      'OPENCODE_SYSTEM_PROMPT',
+      'OPENCODE_CONFIG_JSON',
       'OPENCODE_AUTH_MODE',
       'OPENCODE_LOCAL_CLI_READY',
       'OPENCODE_POLICY_WRITE_MODE',

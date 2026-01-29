@@ -155,6 +155,19 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       log: logWriter,
     });
 
+    const [systemPromptRaw, configJsonRaw] = await Promise.all([
+      getProjectSecretPlain(params.projectId, 'OPENCODE_SYSTEM_PROMPT'),
+      getProjectSecretPlain(params.projectId, 'OPENCODE_CONFIG_JSON'),
+    ]);
+
+    const instructionsPath = await writeOpenCodeInstructions({
+      workspaceDir,
+      systemPrompt: systemPromptRaw,
+      logWriter,
+    });
+
+    const configOverride = parseOpenCodeConfigOverride(configJsonRaw, logWriter);
+
     const prompt = await buildOpenCodePrompt({
       projectId: params.projectId,
       taskId: task.id,
@@ -169,8 +182,9 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     }
     opencodeArgs.push(prompt);
 
+    const opencodeConfig = buildOpenCodeConfig({ instructionsPath, override: configOverride });
     const opencodeEnv: Record<string, string> = {
-      OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: 'allow' }),
+      OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig),
       OPENCODE_DISABLE_AUTOUPDATE: '1',
       OPENCODE_DISABLE_PRUNE: '1',
     };
@@ -362,6 +376,71 @@ async function buildOpenCodePrompt(params: {
   );
 
   return lines.join('\n');
+}
+
+async function writeOpenCodeInstructions(params: {
+  workspaceDir: string;
+  systemPrompt: string | null;
+  logWriter: ReturnType<typeof createAgentRunLogger> | null;
+}): Promise<string | null> {
+  const raw = String(params.systemPrompt ?? '').trim();
+  if (!raw) return null;
+
+  const dir = path.join(params.workspaceDir, '.opencode');
+  const filePath = path.join(dir, 'auto-flow-instructions.md');
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.writeFile(filePath, `${raw}\n`, 'utf8');
+  await params.logWriter?.system('OpenCode instructions file created');
+  return filePath;
+}
+
+function parseOpenCodeConfigOverride(
+  raw: string | null,
+  logWriter: ReturnType<typeof createAgentRunLogger> | null,
+): Record<string, any> | null {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      void logWriter?.system('OpenCode config override ignored: root must be a JSON object.');
+      return null;
+    }
+    return parsed as Record<string, any>;
+  } catch (err: any) {
+    void logWriter?.system(`OpenCode config override ignored: ${String(err?.message ?? err)}`);
+    return null;
+  }
+}
+
+function buildOpenCodeConfig(params: { instructionsPath: string | null; override: Record<string, any> | null }): Record<string, any> {
+  const base: Record<string, any> = {
+    permission: 'allow',
+    ruleset: [],
+  };
+
+  if (params.instructionsPath) {
+    base.instructions = [params.instructionsPath];
+  }
+
+  if (!params.override) return base;
+  return mergeOpenCodeConfig(base, params.override);
+}
+
+function mergeOpenCodeConfig(base: Record<string, any>, override: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    if (isPlainObject(out[key]) && isPlainObject(value)) {
+      out[key] = mergeOpenCodeConfig(out[key], value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function createAgentRunLogger(runId: string, logMode: 'safe' | 'raw') {

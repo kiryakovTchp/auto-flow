@@ -35,6 +35,8 @@ type SettingsData = {
     prTimeoutMinutes: number;
     model: string;
     workspaceRoot: string | null;
+    systemPrompt: string | null;
+    configJson: string | null;
     policy: { writeMode: string; denyPaths: string[]; maxFilesChanged: number | null };
     warnings?: Array<{ key: string; message: string }>;
   };
@@ -89,6 +91,8 @@ export function SettingsPage() {
     prTimeoutMinutes: '60',
     model: 'openai/gpt-4o-mini',
     workspaceRoot: '',
+    systemPrompt: '',
+    configJson: '',
     writeMode: 'pr_only',
     maxFilesChanged: '',
     denyPaths: '',
@@ -116,6 +120,8 @@ export function SettingsPage() {
       prTimeoutMinutes: String(res.opencode.prTimeoutMinutes),
       model: res.opencode.model,
       workspaceRoot: res.opencode.workspaceRoot || '',
+      systemPrompt: res.opencode.systemPrompt || '',
+      configJson: res.opencode.configJson || '',
       writeMode: res.opencode.policy.writeMode,
       maxFilesChanged: res.opencode.policy.maxFilesChanged ? String(res.opencode.policy.maxFilesChanged) : '',
       denyPaths: res.opencode.policy.denyPaths.join('\n'),
@@ -156,6 +162,8 @@ export function SettingsPage() {
           opencode_model: opencodeForm.model,
           opencode_workspace_root: opencodeForm.workspaceRoot,
           opencode_log_mode: opencodeForm.logMode,
+          opencode_system_prompt: opencodeForm.systemPrompt,
+          opencode_config_json: opencodeForm.configJson,
           opencode_auth_mode: opencodeForm.authMode,
           opencode_local_cli_ready: opencodeForm.localCliReady ? '1' : '',
           opencode_policy_write_mode: opencodeForm.writeMode,
@@ -541,6 +549,26 @@ export function SettingsPage() {
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, workspaceRoot: e.target.value }))}
                     className="border-2"
                   />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Системные инструкции</Label>
+                  <Textarea
+                    value={opencodeForm.systemPrompt}
+                    onChange={(e) => setOpencodeForm((p) => ({ ...p, systemPrompt: e.target.value }))}
+                    className="border-2"
+                    placeholder="Например: следуй стилю проекта, не меняй публичные API без согласования..."
+                  />
+                  <p className="text-xs text-muted-foreground">Добавляется в instructions OpenCode.</p>
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>OpenCode config JSON (override)</Label>
+                  <Textarea
+                    value={opencodeForm.configJson}
+                    onChange={(e) => setOpencodeForm((p) => ({ ...p, configJson: e.target.value }))}
+                    className="border-2 font-mono text-xs"
+                    placeholder='{"ruleset": [], "permission": {"edit": "allow"}}'
+                  />
+                  <p className="text-xs text-muted-foreground">Можно переопределить ruleset/permission/tools. Пустое значение очищает.</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <Switch
