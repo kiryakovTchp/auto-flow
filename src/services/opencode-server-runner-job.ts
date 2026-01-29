@@ -193,11 +193,26 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     }
 
     await logWriter.system('OpenCode run command starting');
+    let lastHeartbeatAt = 0;
+    const heartbeatMs = 60_000;
+    const idleTimeoutMs = 5 * 60_000;
+    const overallTimeoutMs = 45 * 60_000;
     const opencodeResult = await runCommand('opencode', opencodeArgs, {
       cwd: workspaceDir,
       env: opencodeEnv,
       onStdoutLine: (line) => logWriter?.stdout(line),
       onStderrLine: (line) => logWriter?.stderr(line),
+      idleTimeoutMs,
+      overallTimeoutMs,
+      heartbeatMs,
+      onHeartbeat: ({ elapsedMs, idleMs }) => {
+        const now = Date.now();
+        if (now - lastHeartbeatAt < heartbeatMs) return;
+        lastHeartbeatAt = now;
+        const elapsedMin = Math.floor(elapsedMs / 60000);
+        const idleMin = Math.floor(idleMs / 60000);
+        void logWriter?.system(`OpenCode still running (${elapsedMin}m elapsed, ${idleMin}m idle)`);
+      },
     });
     await logWriter.system('OpenCode run command finished');
     void opencodeResult;
@@ -417,6 +432,7 @@ function buildOpenCodeConfig(params: { instructionsPath: string | null; override
   const base: Record<string, any> = {
     permission: 'allow',
     ruleset: [],
+    default_agent: 'build',
   };
 
   if (params.instructionsPath) {

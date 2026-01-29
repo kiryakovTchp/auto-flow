@@ -29,7 +29,7 @@ import {
 import { addProjectContact, addProjectLink, deleteProjectContact, deleteProjectLink, listProjectContacts, listProjectLinks } from '../db/project-links';
 import { getIntegrationByProjectType } from '../db/integrations';
 import { getOauthCredentials } from '../db/oauth-credentials';
-import { enqueueJob } from '../db/job-queue';
+import { enqueueJob, listJobQueueByProject } from '../db/job-queue';
 import { listTaskEvents, insertTaskEvent } from '../db/task-events';
 import { getLatestTaskSpec, listTaskSpecs } from '../db/taskspecs';
 import { attachPrToTaskById, getTaskById, getTaskByProjectAsanaGid, listTasksByProject, updateTaskStatusById, type TaskStatus } from '../db/tasks-v2';
@@ -1238,6 +1238,29 @@ export function uiApiRouter(): Router {
         finishedAt: r0.finished_at,
         outputSummary: r0.output_summary,
         taskId: r0.input_spec?.taskId ?? null,
+      })),
+    });
+  });
+
+  r.get('/projects/:slug/job-queue', async (req: AuthedReq, res: Response) => {
+    const slug = String(req.params.slug);
+    const access = await getProjectAccess(req, res, slug);
+    if (!access) return;
+    const limitRaw = Number.parseInt(String(req.query.limit ?? '').trim(), 10);
+    const rows = await listJobQueueByProject({ projectId: access.project.id, limit: Number.isFinite(limitRaw) ? limitRaw : 50 });
+    res.status(200).json({
+      jobs: rows.map((row) => ({
+        id: row.id,
+        status: row.status,
+        kind: row.kind,
+        provider: row.provider,
+        attempts: row.attempts,
+        maxAttempts: row.max_attempts,
+        nextRunAt: row.next_run_at,
+        lockedAt: row.locked_at,
+        lockedBy: row.locked_by,
+        lastError: row.last_error,
+        createdAt: row.created_at,
       })),
     });
   });

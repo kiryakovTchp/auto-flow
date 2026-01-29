@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, Clock } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,15 +25,46 @@ type RunRow = {
   taskId?: string | null;
 };
 
+type JobRow = {
+  id: string;
+  status: string;
+  kind: string;
+  provider: string;
+  attempts: number;
+  maxAttempts: number;
+  nextRunAt: string;
+  lockedAt: string | null;
+  lockedBy: string | null;
+  lastError: string | null;
+  createdAt: string;
+};
+
 export function RunsPage() {
   const { currentProject } = useProject();
   const [runs, setRuns] = useState<RunRow[]>([]);
+  const [jobs, setJobs] = useState<JobRow[]>([]);
   const [selectedRun, setSelectedRun] = useState<{ id: string; logs: string } | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!currentProject) return;
-    apiFetch<{ runs: RunRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/runs`).then((res) => setRuns(res.runs));
+    void refreshData();
   }, [currentProject]);
+
+  const refreshData = async () => {
+    if (!currentProject) return;
+    setLoading(true);
+    try {
+      const [runsRes, jobsRes] = await Promise.all([
+        apiFetch<{ runs: RunRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/runs`),
+        apiFetch<{ jobs: JobRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/job-queue`),
+      ]);
+      setRuns(runsRes.runs);
+      setJobs(jobsRes.jobs);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -79,6 +110,46 @@ export function RunsPage() {
       <div>
         <h1 className="text-2xl font-bold">Запуски</h1>
         <p className="text-muted-foreground">История запусков OpenCode</p>
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="outline" className="border-2" onClick={refreshData} disabled={loading}>
+          <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
+          Обновить
+        </Button>
+      </div>
+
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Очередь задач</h2>
+        {jobs.map((job) => (
+          <Card key={job.id} className="border-2 border-border">
+            <CardContent className="p-4">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium">{job.kind}</div>
+                  <Badge className="bg-muted text-muted-foreground border-border">{job.status}</Badge>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Provider: {job.provider} · Attempts: {job.attempts}/{job.maxAttempts}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Created: {new Date(job.createdAt).toLocaleString()} · Next: {new Date(job.nextRunAt).toLocaleString()}
+                </div>
+                {job.lockedAt && (
+                  <div className="text-xs text-muted-foreground">
+                    Locked: {new Date(job.lockedAt).toLocaleString()} · {job.lockedBy || 'unknown'}
+                  </div>
+                )}
+                {job.lastError && <div className="text-xs text-destructive">{job.lastError}</div>}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+        {!jobs.length && (
+          <div className="text-center py-8 border-2 border-dashed border-border">
+            <p className="text-muted-foreground">Очередь пуста.</p>
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">

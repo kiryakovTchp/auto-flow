@@ -8,6 +8,10 @@ export type RunCommandOptions = {
   scrub?: string;
   onStdoutLine?: (line: string) => void;
   onStderrLine?: (line: string) => void;
+  idleTimeoutMs?: number;
+  overallTimeoutMs?: number;
+  heartbeatMs?: number;
+  onHeartbeat?: (info: { elapsedMs: number; idleMs: number }) => void;
 };
 
 export async function runCommand(
@@ -24,12 +28,55 @@ export async function runCommand(
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const startedAt = Date.now();
+    let lastOutputAt = startedAt;
+
+    const cleanupTimers: Array<NodeJS.Timeout> = [];
+
+    const overallTimeoutMs = opts.overallTimeoutMs && opts.overallTimeoutMs > 0 ? opts.overallTimeoutMs : null;
+    const idleTimeoutMs = opts.idleTimeoutMs && opts.idleTimeoutMs > 0 ? opts.idleTimeoutMs : null;
+    const heartbeatMs = opts.heartbeatMs && opts.heartbeatMs > 0 ? opts.heartbeatMs : null;
+
+    if (overallTimeoutMs) {
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        proc.kill('SIGTERM');
+        reject(new Error(`Command timed out after ${overallTimeoutMs}ms`));
+      }, overallTimeoutMs);
+      cleanupTimers.push(timer);
+    }
+
+    if (idleTimeoutMs) {
+      const timer = setInterval(() => {
+        if (settled) return;
+        const idleMs = Date.now() - lastOutputAt;
+        if (idleMs >= idleTimeoutMs) {
+          settled = true;
+          proc.kill('SIGTERM');
+          reject(new Error(`Command idle timeout after ${idleTimeoutMs}ms`));
+        }
+      }, Math.min(30_000, idleTimeoutMs));
+      cleanupTimers.push(timer);
+    }
+
+    if (heartbeatMs && opts.onHeartbeat) {
+      const timer = setInterval(() => {
+        if (settled) return;
+        const now = Date.now();
+        opts.onHeartbeat?.({ elapsedMs: now - startedAt, idleMs: now - lastOutputAt });
+      }, heartbeatMs);
+      cleanupTimers.push(timer);
+    }
 
     const stdoutBuffer = { value: '' };
     const stderrBuffer = { value: '' };
 
     proc.stdout.on('data', (chunk) => {
       const text = chunk.toString();
+      lastOutputAt = Date.now();
       if (stdout.length < MAX_OUTPUT_CHARS) {
         stdout += text;
         if (stdout.length > MAX_OUTPUT_CHARS) stdout = stdout.slice(0, MAX_OUTPUT_CHARS);
@@ -39,6 +86,7 @@ export async function runCommand(
 
     proc.stderr.on('data', (chunk) => {
       const text = chunk.toString();
+      lastOutputAt = Date.now();
       if (stderr.length < MAX_OUTPUT_CHARS) {
         stderr += text;
         if (stderr.length > MAX_OUTPUT_CHARS) stderr = stderr.slice(0, MAX_OUTPUT_CHARS);
@@ -46,8 +94,16 @@ export async function runCommand(
       emitLines(text, stderrBuffer, opts.onStderrLine, opts.scrub);
     });
 
-    proc.on('error', reject);
+    proc.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      cleanupTimers.forEach((timer) => clearTimeout(timer));
+      reject(err);
+    });
     proc.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      cleanupTimers.forEach((timer) => clearTimeout(timer));
       flushBuffer(stdoutBuffer, opts.onStdoutLine, opts.scrub);
       flushBuffer(stderrBuffer, opts.onStderrLine, opts.scrub);
       const scrubbed = opts.scrub ? scrubOutput(stdout + stderr, opts.scrub) : null;

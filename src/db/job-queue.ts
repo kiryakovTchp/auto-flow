@@ -108,3 +108,21 @@ export async function markJobFailed(params: {
     [params.jobId, status, params.attempts, params.error, backoffMs],
   );
 }
+
+export async function listJobQueueByProject(params: {
+  projectId: string;
+  limit?: number;
+}): Promise<JobQueueRow[]> {
+  const limit = params.limit && params.limit > 0 ? params.limit : 50;
+  const res = await pool.query<JobQueueRow>(
+    `
+      select *
+      from job_queue
+      where project_id = $1
+      order by created_at desc
+      limit $2
+    `,
+    [params.projectId, limit],
+  );
+  return res.rows;
+}
