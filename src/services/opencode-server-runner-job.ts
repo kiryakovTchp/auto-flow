@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { getLatestTaskSpec } from '../db/taskspecs';
 import { createAgentRun, getAgentRunById, insertAgentRunLog, updateAgentRun } from '../db/agent-runs';
 import { insertTaskEvent } from '../db/task-events';
@@ -168,6 +169,10 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     });
 
     const configOverride = parseOpenCodeConfigOverride(configJsonRaw, logWriter);
+    const runtimeEnv = await prepareOpenCodeRuntime({
+      workspaceDir,
+      logWriter,
+    });
 
     const prompt = await buildOpenCodePrompt({
       projectId: params.projectId,
@@ -184,10 +189,16 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     opencodeArgs.push(prompt);
 
     const opencodeConfig = buildOpenCodeConfig({ instructionsPath, override: configOverride });
+    await logWriter.system('OpenCode config override: using isolated runtime');
+    await fs.promises.writeFile(runtimeEnv.configPath, JSON.stringify(opencodeConfig), 'utf8');
     const opencodeEnv: Record<string, string> = {
-      OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig),
+      OPENCODE_CONFIG: runtimeEnv.configPath,
+      OPENCODE_CONFIG_DIR: runtimeEnv.configDir,
       OPENCODE_DISABLE_AUTOUPDATE: '1',
       OPENCODE_DISABLE_PRUNE: '1',
+      XDG_CONFIG_HOME: runtimeEnv.configDir,
+      XDG_DATA_HOME: runtimeEnv.dataDir,
+      XDG_CACHE_HOME: runtimeEnv.cacheDir,
     };
     if (accessToken) {
       opencodeEnv.OPENAI_ACCESS_TOKEN = accessToken;
@@ -451,6 +462,49 @@ function buildOpenCodeConfig(params: { instructionsPath: string | null; override
 
   if (!params.override) return base;
   return mergeOpenCodeConfig(base, params.override);
+}
+
+async function prepareOpenCodeRuntime(params: {
+  workspaceDir: string;
+  logWriter: ReturnType<typeof createAgentRunLogger> | null;
+}): Promise<{ configDir: string; dataDir: string; cacheDir: string; configPath: string }> {
+  const root = path.join(params.workspaceDir, '.opencode-runtime');
+  const configDir = path.join(root, 'config');
+  const dataDir = path.join(root, 'data');
+  const cacheDir = path.join(root, 'cache');
+  await fs.promises.mkdir(configDir, { recursive: true });
+  await fs.promises.mkdir(dataDir, { recursive: true });
+  await fs.promises.mkdir(cacheDir, { recursive: true });
+
+  const configPath = path.join(configDir, 'opencode.json');
+  await fs.promises.writeFile(configPath, JSON.stringify({}), 'utf8');
+
+  const authSource = resolveOpenCodeAuthPath();
+  if (authSource) {
+    try {
+      const target = path.join(dataDir, 'opencode', 'auth.json');
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      await fs.promises.copyFile(authSource, target);
+      await params.logWriter?.system('OpenCode auth copied to isolated runtime');
+    } catch (err: any) {
+      await params.logWriter?.system(`OpenCode auth copy skipped: ${String(err?.message ?? err)}`);
+    }
+  }
+
+  return { configDir, dataDir, cacheDir, configPath };
+}
+
+function resolveOpenCodeAuthPath(): string | null {
+  const xdgDataHome = process.env.XDG_DATA_HOME?.trim();
+  if (xdgDataHome) {
+    const candidate = path.join(xdgDataHome, 'opencode', 'auth.json');
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  const home = os.homedir();
+  const candidate = path.join(home, '.local', 'share', 'opencode', 'auth.json');
+  if (fs.existsSync(candidate)) return candidate;
+  return null;
 }
 
 function mergeOpenCodeConfig(base: Record<string, any>, override: Record<string, any>): Record<string, any> {
