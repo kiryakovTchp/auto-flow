@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, Clock, Download } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Download, CircleDot } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useProject } from '@/contexts/ProjectContext';
 import {
   Dialog,
@@ -30,19 +31,36 @@ export function RunsPage() {
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [selectedRun, setSelectedRun] = useState<{ id: string; logs: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  const [hasMore, setHasMore] = useState(false);
+  const [onlyErrors, setOnlyErrors] = useState(false);
 
   useEffect(() => {
     if (!currentProject) return;
     void refreshRuns();
     const timer = setInterval(() => void refreshRuns(), 15000);
     return () => clearInterval(timer);
-  }, [currentProject]);
+  }, [currentProject, page, pageSize, onlyErrors]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [pageSize, onlyErrors]);
 
   const refreshRuns = async () => {
     if (!currentProject) return;
     setRefreshing(true);
-    const runsRes = await apiFetch<{ runs: RunRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/runs`);
+    const params = new URLSearchParams();
+    params.set('limit', String(pageSize));
+    params.set('offset', String(page * pageSize));
+    if (onlyErrors) params.set('status', 'failed');
+    const runsRes = await apiFetch<{ runs: RunRow[]; hasMore: boolean }>(
+      `/projects/${encodeURIComponent(currentProject.slug)}/runs?${params.toString()}`,
+    );
     setRuns(runsRes.runs);
+    setHasMore(runsRes.hasMore);
+    setLastUpdatedAt(new Date());
     setRefreshing(false);
   };
 
@@ -112,12 +130,43 @@ export function RunsPage() {
       <div>
         <h1 className="text-2xl font-bold">Запуски</h1>
         <p className="text-muted-foreground">История запусков OpenCode</p>
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <CircleDot className="h-3 w-3 text-emerald-500" />
+          Live · {lastUpdatedAt ? `Обновлено ${lastUpdatedAt.toLocaleTimeString()}` : 'обновляем…'}
+        </div>
       </div>
 
       <div className="flex justify-end">
         <Button variant="outline" className="border-2" onClick={refreshRuns} disabled={refreshing}>
           {refreshing ? 'Обновляем…' : 'Обновить'}
         </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant={onlyErrors ? 'default' : 'outline'}
+          className="border-2"
+          onClick={() => setOnlyErrors((prev) => !prev)}
+        >
+          Только ошибки
+        </Button>
+        <span className="text-sm text-muted-foreground">Страница {page + 1}</span>
+        <Button variant="outline" className="border-2" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+          Назад
+        </Button>
+        <Button variant="outline" className="border-2" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>
+          Вперед
+        </Button>
+        <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+          <SelectTrigger className="w-[140px] border-2">
+            <SelectValue placeholder="Размер" />
+          </SelectTrigger>
+          <SelectContent className="border-2 border-border bg-popover">
+            <SelectItem value="10">10 / стр</SelectItem>
+            <SelectItem value="20">20 / стр</SelectItem>
+            <SelectItem value="50">50 / стр</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-4">

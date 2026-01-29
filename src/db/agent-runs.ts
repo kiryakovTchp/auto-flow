@@ -67,17 +67,36 @@ export async function insertAgentRunLog(params: {
   );
 }
 
-export async function listAgentRunsByProject(params: { projectId: string; limit?: number }): Promise<AgentRunRow[]> {
+export async function listAgentRunsByProject(params: {
+  projectId: string;
+  limit?: number;
+  offset?: number;
+  status?: string | null;
+}): Promise<AgentRunRow[]> {
   const lim = Math.max(1, Math.min(200, params.limit ?? 50));
+  const offset = Math.max(0, params.offset ?? 0);
+  const conditions: string[] = ['project_id = $1'];
+  const values: Array<string | number> = [params.projectId];
+  let idx = 2;
+
+  const status = params.status?.trim();
+  if (status) {
+    conditions.push(`status = $${idx}`);
+    values.push(status);
+    idx += 1;
+  }
+
+  values.push(lim, offset);
+
   const res = await pool.query<AgentRunRow>(
     `
       select id, project_id, agent_type, triggered_by_user_id, status, input_spec, output_summary, created_at, started_at, finished_at
       from agent_runs
-      where project_id = $1
+      where ${conditions.join(' and ')}
       order by created_at desc
-      limit $2
+      limit $${idx} offset $${idx + 1}
     `,
-    [params.projectId, lim],
+    values,
   );
   return res.rows;
 }

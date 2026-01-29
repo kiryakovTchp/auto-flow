@@ -112,17 +112,49 @@ export async function markJobFailed(params: {
 export async function listJobQueueByProject(params: {
   projectId: string;
   limit?: number;
+  offset?: number;
+  status?: string | null;
+  provider?: string | null;
+  query?: string | null;
 }): Promise<JobQueueRow[]> {
   const limit = params.limit && params.limit > 0 ? params.limit : 50;
+  const offset = params.offset && params.offset > 0 ? params.offset : 0;
+  const conditions: string[] = ['project_id = $1'];
+  const values: Array<string | number> = [params.projectId];
+  let idx = 2;
+
+  const status = params.status?.trim();
+  if (status) {
+    conditions.push(`status = $${idx}`);
+    values.push(status);
+    idx += 1;
+  }
+
+  const provider = params.provider?.trim();
+  if (provider) {
+    conditions.push(`provider = $${idx}`);
+    values.push(provider);
+    idx += 1;
+  }
+
+  const query = params.query?.trim();
+  if (query) {
+    conditions.push(`kind ilike $${idx}`);
+    values.push(`%${query}%`);
+    idx += 1;
+  }
+
+  values.push(limit, offset);
+
   const res = await pool.query<JobQueueRow>(
     `
       select *
       from job_queue
-      where project_id = $1
+      where ${conditions.join(' and ')}
       order by created_at desc
-      limit $2
+      limit $${idx} offset $${idx + 1}
     `,
-    [params.projectId, limit],
+    values,
   );
   return res.rows;
 }

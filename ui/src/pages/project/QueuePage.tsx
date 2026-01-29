@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Filter, Layers } from 'lucide-react';
+import { RefreshCw, Filter, Layers, CircleDot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,51 +36,55 @@ export function QueuePage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [providerFilter, setProviderFilter] = useState('all');
   const [query, setQuery] = useState('');
+  const [onlyErrors, setOnlyErrors] = useState(false);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  const [hasMore, setHasMore] = useState(false);
+  const [providers, setProviders] = useState<string[]>([]);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!currentProject) return;
     void refreshData();
     const timer = setInterval(() => void refreshData(), 15000);
     return () => clearInterval(timer);
-  }, [currentProject]);
+  }, [currentProject, statusFilter, providerFilter, query, onlyErrors, page, pageSize]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [statusFilter, providerFilter, query, onlyErrors, pageSize]);
 
   const refreshData = async () => {
     if (!currentProject) return;
     setLoading(true);
     try {
-      const res = await apiFetch<{ jobs: JobRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/job-queue`);
+      const effectiveStatus = onlyErrors ? 'failed' : statusFilter === 'all' ? '' : statusFilter;
+      const params = new URLSearchParams();
+      params.set('limit', String(pageSize));
+      params.set('offset', String(page * pageSize));
+      if (effectiveStatus) params.set('status', effectiveStatus);
+      if (providerFilter !== 'all') params.set('provider', providerFilter);
+      if (query.trim()) params.set('query', query.trim());
+      const res = await apiFetch<{ jobs: JobRow[]; hasMore: boolean; providers: string[] }>(
+        `/projects/${encodeURIComponent(currentProject.slug)}/job-queue?${params.toString()}`,
+      );
       setJobs(res.jobs);
+      setHasMore(res.hasMore);
+      setProviders(res.providers ?? []);
+      setLastUpdatedAt(new Date());
     } finally {
       setLoading(false);
     }
   };
 
-  const filtered = useMemo(() => {
-    if (statusFilter === 'all') return jobs;
-    return jobs.filter((job) => job.status === statusFilter);
-  }, [jobs, statusFilter]);
-
-  const filteredByProvider = useMemo(() => {
-    const base = statusFilter === 'all' ? jobs : jobs.filter((job) => job.status === statusFilter);
-    const byProvider = providerFilter === 'all' ? base : base.filter((job) => job.provider === providerFilter);
-    const trimmed = query.trim().toLowerCase();
-    if (!trimmed) return byProvider;
-    return byProvider.filter((job) => job.kind.toLowerCase().includes(trimmed));
-  }, [jobs, statusFilter, providerFilter, query]);
-
   const grouped = useMemo(() => {
     const buckets = new Map<string, JobRow[]>();
-    for (const job of filteredByProvider) {
+    for (const job of jobs) {
       const list = buckets.get(job.status) ?? [];
       list.push(job);
       buckets.set(job.status, list);
     }
     return buckets;
-  }, [filteredByProvider]);
-
-  const providerOptions = useMemo(() => {
-    const set = new Set(jobs.map((job) => job.provider));
-    return Array.from(set.values()).sort();
   }, [jobs]);
 
   if (!currentProject) return null;
@@ -91,6 +95,10 @@ export function QueuePage() {
         <div>
           <h1 className="text-2xl font-bold">Очередь</h1>
           <p className="text-muted-foreground">Фоновые задачи проекта и статус обработки.</p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <CircleDot className="h-3 w-3 text-emerald-500" />
+            Live · {lastUpdatedAt ? `Обновлено ${lastUpdatedAt.toLocaleTimeString()}` : 'обновляем…'}
+          </div>
         </div>
         <Button variant="outline" className="border-2" onClick={refreshData} disabled={loading}>
           <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
@@ -101,7 +109,7 @@ export function QueuePage() {
       <div className="flex flex-wrap items-center gap-2">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[200px] border-2">
+          <SelectTrigger className="w-[200px] border-2" disabled={onlyErrors}>
             <SelectValue placeholder="Статус" />
           </SelectTrigger>
           <SelectContent className="border-2 border-border bg-popover">
@@ -118,7 +126,7 @@ export function QueuePage() {
           </SelectTrigger>
           <SelectContent className="border-2 border-border bg-popover">
             <SelectItem value="all">Все провайдеры</SelectItem>
-            {providerOptions.map((provider) => (
+            {providers.map((provider) => (
               <SelectItem key={provider} value={provider}>
                 {provider}
               </SelectItem>
@@ -131,6 +139,33 @@ export function QueuePage() {
           placeholder="Поиск по типу"
           className="w-[220px] border-2"
         />
+        <Button
+          variant={onlyErrors ? 'default' : 'outline'}
+          className="border-2"
+          onClick={() => setOnlyErrors((prev) => !prev)}
+        >
+          Только ошибки
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted-foreground">Страница {page + 1}</span>
+        <Button variant="outline" className="border-2" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+          Назад
+        </Button>
+        <Button variant="outline" className="border-2" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>
+          Вперед
+        </Button>
+        <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+          <SelectTrigger className="w-[140px] border-2">
+            <SelectValue placeholder="Размер" />
+          </SelectTrigger>
+          <SelectContent className="border-2 border-border bg-popover">
+            <SelectItem value="10">10 / стр</SelectItem>
+            <SelectItem value="20">20 / стр</SelectItem>
+            <SelectItem value="50">50 / стр</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-6">
@@ -168,7 +203,7 @@ export function QueuePage() {
             ))}
           </div>
         ))}
-        {!filteredByProvider.length && (
+        {!jobs.length && (
           <div className="text-center py-8 border-2 border-dashed border-border">
             <p className="text-muted-foreground">Очередь пуста.</p>
           </div>

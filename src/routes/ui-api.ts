@@ -1229,9 +1229,20 @@ export function uiApiRouter(): Router {
     const access = await getProjectAccess(req, res, slug);
     if (!access) return;
     const limitRaw = Number.parseInt(String(req.query.limit ?? '').trim(), 10);
-    const runs = await listAgentRunsByProject({ projectId: access.project.id, limit: Number.isFinite(limitRaw) ? limitRaw : 50 });
+    const offsetRaw = Number.parseInt(String(req.query.offset ?? '').trim(), 10);
+    const statusRaw = String(req.query.status ?? '').trim();
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
+    const offset = Number.isFinite(offsetRaw) ? offsetRaw : 0;
+    const runs = await listAgentRunsByProject({
+      projectId: access.project.id,
+      limit: limit + 1,
+      offset,
+      status: statusRaw || null,
+    });
+    const hasMore = runs.length > limit;
+    const trimmed = hasMore ? runs.slice(0, limit) : runs;
     res.status(200).json({
-      runs: runs.map((r0) => ({
+      runs: trimmed.map((r0) => ({
         id: r0.id,
         status: r0.status,
         createdAt: r0.created_at,
@@ -1240,6 +1251,9 @@ export function uiApiRouter(): Router {
         outputSummary: r0.output_summary,
         taskId: r0.input_spec?.taskId ?? null,
       })),
+      hasMore,
+      limit,
+      offset,
     });
   });
 
@@ -1248,9 +1262,29 @@ export function uiApiRouter(): Router {
     const access = await getProjectAccess(req, res, slug);
     if (!access) return;
     const limitRaw = Number.parseInt(String(req.query.limit ?? '').trim(), 10);
-    const rows = await listJobQueueByProject({ projectId: access.project.id, limit: Number.isFinite(limitRaw) ? limitRaw : 50 });
+    const offsetRaw = Number.parseInt(String(req.query.offset ?? '').trim(), 10);
+    const statusRaw = String(req.query.status ?? '').trim();
+    const providerRaw = String(req.query.provider ?? '').trim();
+    const queryRaw = String(req.query.query ?? '').trim();
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
+    const offset = Number.isFinite(offsetRaw) ? offsetRaw : 0;
+    const rows = await listJobQueueByProject({
+      projectId: access.project.id,
+      limit: limit + 1,
+      offset,
+      status: statusRaw || null,
+      provider: providerRaw || null,
+      query: queryRaw || null,
+    });
+    const hasMore = rows.length > limit;
+    const trimmed = hasMore ? rows.slice(0, limit) : rows;
+    const providersRes = await pool.query<{ provider: string }>(
+      'select distinct provider from job_queue where project_id = $1 order by provider asc',
+      [access.project.id],
+    );
+    const providers = providersRes.rows.map((row) => row.provider);
     res.status(200).json({
-      jobs: rows.map((row) => ({
+      jobs: trimmed.map((row) => ({
         id: row.id,
         status: row.status,
         kind: row.kind,
@@ -1263,6 +1297,10 @@ export function uiApiRouter(): Router {
         lastError: row.last_error,
         createdAt: row.created_at,
       })),
+      hasMore,
+      limit,
+      offset,
+      providers,
     });
   });
 
