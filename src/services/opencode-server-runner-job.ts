@@ -188,7 +188,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     }
     opencodeArgs.push(prompt);
 
-    const opencodeConfig = buildOpenCodeConfig({ instructionsPath, override: configOverride });
+    const opencodeConfig = buildOpenCodeConfig({ instructionsPath, override: sanitizeOpenCodeOverride(configOverride, logWriter) });
     await logWriter.system('OpenCode config override: using isolated runtime');
     await fs.promises.writeFile(runtimeEnv.configPath, JSON.stringify(opencodeConfig), 'utf8');
     const opencodeEnv: Record<string, string> = {
@@ -452,7 +452,6 @@ function parseOpenCodeConfigOverride(
 function buildOpenCodeConfig(params: { instructionsPath: string | null; override: Record<string, any> | null }): Record<string, any> {
   const base: Record<string, any> = {
     permission: 'allow',
-    ruleset: [],
     default_agent: 'build',
   };
 
@@ -462,6 +461,19 @@ function buildOpenCodeConfig(params: { instructionsPath: string | null; override
 
   if (!params.override) return base;
   return mergeOpenCodeConfig(base, params.override);
+}
+
+function sanitizeOpenCodeOverride(
+  override: Record<string, any> | null,
+  logWriter: ReturnType<typeof createAgentRunLogger> | null,
+): Record<string, any> | null {
+  if (!override) return null;
+  const sanitized = { ...override };
+  if (Object.prototype.hasOwnProperty.call(sanitized, 'ruleset')) {
+    delete sanitized.ruleset;
+    void logWriter?.system('OpenCode override: removed unsupported "ruleset" key');
+  }
+  return sanitized;
 }
 
 async function prepareOpenCodeRuntime(params: {
