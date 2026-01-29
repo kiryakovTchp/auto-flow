@@ -86,7 +86,7 @@ export function TaskDetailPage() {
   const repoOptions = useMemo(() => repos.map((r) => `${r.owner}/${r.repo}`), [repos]);
 
   if (!currentProject) {
-    return null;
+    return <div className="text-muted-foreground text-sm">Загрузка проекта...</div>;
   }
 
   const task = data?.task;
@@ -386,14 +386,14 @@ export function TaskDetailPage() {
             className="border-2 border-transparent data-[state=active]:border-border data-[state=active]:bg-accent"
           >
             <FileText className="h-4 w-4 mr-2" />
-            Спека
+            Спецификация
           </TabsTrigger>
           <TabsTrigger
             value="timeline"
             className="border-2 border-transparent data-[state=active]:border-border data-[state=active]:bg-accent"
           >
             <Clock className="h-4 w-4 mr-2" />
-            Таймлайн
+            Хронология
           </TabsTrigger>
         </TabsList>
 

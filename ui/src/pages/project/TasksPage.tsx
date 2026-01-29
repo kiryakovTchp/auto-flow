@@ -150,6 +150,19 @@ export function TasksPage() {
     }
   };
 
+  const syncFromAsana = async () => {
+    if (!currentProject) return;
+    try {
+      await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/import/asana`, {
+        method: 'POST',
+        body: { days: 90 },
+      });
+      toast({ title: 'Синхронизация запущена', description: 'Импортируем задачи из Asana.' });
+    } catch (err: any) {
+      toast({ title: 'Ошибка синхронизации', description: err?.message || 'Не удалось синхронизировать задачи.', variant: 'destructive' });
+    }
+  };
+
   const handleCreateTask = async () => {
     if (!currentProject || !newTask.title.trim()) return;
     try {
@@ -174,6 +187,8 @@ export function TasksPage() {
       toast({ title: 'Ошибка создания', description: err?.message || 'Не удалось создать задачу.', variant: 'destructive' });
     }
   };
+
+  const isFiltered = Boolean(searchQuery.trim()) || statusFilter !== 'all';
 
   return (
     <div className="space-y-6">
@@ -384,7 +399,26 @@ export function TasksPage() {
 
       {!isLoading && filteredTasks.length === 0 && (
         <div className="text-center py-12 border-2 border-dashed border-border">
-          <p className="text-muted-foreground">Нет задач по выбранным фильтрам</p>
+          <p className="text-muted-foreground">
+            {isFiltered ? 'Нет задач по выбранным фильтрам' : 'Задач пока нет.'}
+          </p>
+          {!isFiltered && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {canEdit && (
+                <>
+                  <Button onClick={syncFromAsana} className="shadow-sm">
+                    Синхронизировать из Asana
+                  </Button>
+                  <Button variant="outline" className="border-2" onClick={() => setIsCreateOpen(true)}>
+                    Создать задачу
+                  </Button>
+                </>
+              )}
+              {!canEdit && (
+                <span className="text-xs text-muted-foreground">Обратитесь к администратору или проверьте интеграции.</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

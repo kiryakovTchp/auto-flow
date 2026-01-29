@@ -10,7 +10,7 @@ import { consumeInvite, createInvite, createSession, createUser, deleteSession, 
 import { createProjectApiToken, listProjectApiTokens, revokeProjectApiToken } from '../db/api-tokens';
 import { getAgentRunById, listAgentRunLogs, listAgentRunsByProject } from '../db/agent-runs';
 import { getAsanaFieldConfig, listAsanaStatusMap, upsertAsanaFieldConfig, upsertAsanaStatusMap, deleteAsanaStatusMap } from '../db/asana-config';
-import { createMembership, createProject, getMembership, getProjectBySlug, listProjects } from '../db/projects';
+import { createMembership, createProject, getMembership, getProjectBySlug, listProjects, listProjectsForUser } from '../db/projects';
 import { listProjectWebhooks, upsertProjectWebhook } from '../db/project-webhooks';
 import { listRepoMap, upsertRepoMap, deleteRepoMap } from '../db/repo-map';
 import {
@@ -173,9 +173,10 @@ function mapEventRow(row: any): any {
   };
 }
 
-async function adoptLegacyTasksIfSoloProject(projectId: string): Promise<number> {
-  const projects = await listProjects();
-  if (projects.length !== 1) return 0;
+async function adoptLegacyTasksIfSoloProject(projectId: string, userId: string): Promise<number> {
+  const userProjects = await listProjectsForUser(userId);
+  if (userProjects.length !== 1) return 0;
+  if (userProjects[0]?.id !== projectId) return 0;
 
   const legacyCountRes = await pool.query<{ count: string }>('select count(*) from tasks where project_id is null');
   const legacyCount = Number(legacyCountRes.rows[0]?.count ?? 0);
@@ -448,7 +449,7 @@ export function uiApiRouter(): Router {
     const access = await getProjectAccess(req, res, slug);
     if (!access) return;
 
-    await adoptLegacyTasksIfSoloProject(access.project.id);
+    await adoptLegacyTasksIfSoloProject(access.project.id, (req as any).auth.userId);
     const tasks = await listTasksByProject(access.project.id);
     const activeStatuses = new Set(['RECEIVED', 'TASKSPEC_CREATED', 'NEEDS_REPO', 'ISSUE_CREATED', 'PR_CREATED', 'WAITING_CI', 'BLOCKED']);
     const activeTasks = tasks.filter((t) => activeStatuses.has(t.status)).length;
@@ -500,7 +501,7 @@ export function uiApiRouter(): Router {
     const access = await getProjectAccess(req, res, slug);
     if (!access) return;
 
-    await adoptLegacyTasksIfSoloProject(access.project.id);
+    await adoptLegacyTasksIfSoloProject(access.project.id, (req as any).auth.userId);
     const status = String(req.query.status ?? '').trim();
     const tasks = await listTasksByProject(access.project.id, status ? (status as TaskStatus) : undefined);
     res.status(200).json({ tasks: tasks.map(mapTaskRow) });
@@ -600,7 +601,7 @@ export function uiApiRouter(): Router {
     if (!access) return;
 
     const taskId = String(req.params.id);
-    await adoptLegacyTasksIfSoloProject(access.project.id);
+    await adoptLegacyTasksIfSoloProject(access.project.id, (req as any).auth.userId);
     const task = await getTaskById(taskId);
     if (!task || task.project_id !== access.project.id) {
       jsonError(res, 404, 'Task not found');

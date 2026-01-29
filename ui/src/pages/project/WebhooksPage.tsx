@@ -111,7 +111,7 @@ export function WebhooksPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="publicBaseUrl">Публичный Base URL</Label>
+                <Label htmlFor="publicBaseUrl">Публичный базовый URL</Label>
                 <Input
                   id="publicBaseUrl"
                   value={publicBaseUrl}
@@ -119,7 +119,7 @@ export function WebhooksPage() {
                   placeholder="https://your-domain.com"
                   className="border-2"
                 />
-                <div className="text-xs text-muted-foreground">Base URL для webhook callback (без завершающего слеша)</div>
+                <div className="text-xs text-muted-foreground">Базовый URL для callback вебхуков (без завершающего слеша)</div>
               </div>
               <Button onClick={setupAsanaWebhooks}>Настроить вебхуки Asana</Button>
             </CardContent>

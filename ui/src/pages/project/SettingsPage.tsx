@@ -468,7 +468,7 @@ export function SettingsPage() {
                     <SelectContent className="border-2 border-border bg-popover">
                       <SelectItem value="github-actions">github-actions</SelectItem>
                       <SelectItem value="server-runner">server-runner</SelectItem>
-                      <SelectItem value="off">off</SelectItem>
+                      <SelectItem value="off">выкл</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -773,13 +773,13 @@ export function SettingsPage() {
                 <Input
                   value={repoForm.owner}
                   onChange={(e) => setRepoForm((p) => ({ ...p, owner: e.target.value }))}
-                  placeholder="owner"
+                  placeholder="владелец"
                   className="border-2"
                 />
                 <Input
                   value={repoForm.repo}
                   onChange={(e) => setRepoForm((p) => ({ ...p, repo: e.target.value }))}
-                  placeholder="repo"
+                  placeholder="репозиторий"
                   className="border-2"
                 />
                 <div className="flex items-center gap-2">
