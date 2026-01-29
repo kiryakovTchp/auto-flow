@@ -188,7 +188,12 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     }
     opencodeArgs.push(prompt);
 
-    const opencodeConfig = buildOpenCodeConfig({ instructionsPath, override: sanitizeOpenCodeOverride(configOverride, logWriter) });
+    const providerId = getProviderFromModel(opencodeCfg.model);
+    const opencodeConfig = buildOpenCodeConfig({
+      instructionsPath,
+      override: sanitizeOpenCodeOverride(configOverride, logWriter),
+      providerId,
+    });
     await logWriter.system('OpenCode config override: using isolated runtime');
     await fs.promises.writeFile(runtimeEnv.configPath, JSON.stringify(opencodeConfig), 'utf8');
     const opencodeEnv: Record<string, string> = {
@@ -449,11 +454,19 @@ function parseOpenCodeConfigOverride(
   }
 }
 
-function buildOpenCodeConfig(params: { instructionsPath: string | null; override: Record<string, any> | null }): Record<string, any> {
+function buildOpenCodeConfig(params: {
+  instructionsPath: string | null;
+  override: Record<string, any> | null;
+  providerId: string | null;
+}): Record<string, any> {
   const base: Record<string, any> = {
     permission: 'allow',
     default_agent: 'build',
   };
+
+  if (params.providerId) {
+    base.enabled_providers = [params.providerId];
+  }
 
   if (params.instructionsPath) {
     base.instructions = [params.instructionsPath];
@@ -474,6 +487,14 @@ function sanitizeOpenCodeOverride(
     void logWriter?.system('OpenCode override: removed unsupported "ruleset" key');
   }
   return sanitized;
+}
+
+function getProviderFromModel(model: string): string | null {
+  const trimmed = String(model ?? '').trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split('/');
+  if (parts.length < 2) return null;
+  return parts[0] || null;
 }
 
 async function prepareOpenCodeRuntime(params: {
