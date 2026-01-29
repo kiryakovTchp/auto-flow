@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, FolderKanban, Users, Calendar, Search } from 'lucide-react';
+import { Plus, FolderKanban, Users, Calendar, Search, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -87,7 +87,13 @@ export function ProjectsPage() {
             </p>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" className="border-2" asChild>
+              <a href="https://t.me/touchpe" target="_blank" rel="noreferrer noopener">
+                <MessageCircle className="h-4 w-4 mr-2" />
+                Связь с админом
+              </a>
+            </Button>
             <Button variant="outline" className="border-2" onClick={handleCreateInvite}>
               Создать инвайт
             </Button>
