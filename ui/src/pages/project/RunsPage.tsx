@@ -34,6 +34,8 @@ export function RunsPage() {
   useEffect(() => {
     if (!currentProject) return;
     void refreshRuns();
+    const timer = setInterval(() => void refreshRuns(), 15000);
+    return () => clearInterval(timer);
   }, [currentProject]);
 
   const refreshRuns = async () => {
@@ -46,6 +48,7 @@ export function RunsPage() {
 
   const cancelRun = async (runId: string) => {
     if (!currentProject) return;
+    if (!window.confirm('Отменить этот запуск?')) return;
     await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
     await refreshRuns();
   };

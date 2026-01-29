@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Filter } from 'lucide-react';
+import { RefreshCw, Filter, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useProject } from '@/contexts/ProjectContext';
 import { apiFetch } from '@/lib/api';
@@ -33,10 +34,14 @@ export function QueuePage() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [providerFilter, setProviderFilter] = useState('all');
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     if (!currentProject) return;
     void refreshData();
+    const timer = setInterval(() => void refreshData(), 15000);
+    return () => clearInterval(timer);
   }, [currentProject]);
 
   const refreshData = async () => {
@@ -55,6 +60,29 @@ export function QueuePage() {
     return jobs.filter((job) => job.status === statusFilter);
   }, [jobs, statusFilter]);
 
+  const filteredByProvider = useMemo(() => {
+    const base = statusFilter === 'all' ? jobs : jobs.filter((job) => job.status === statusFilter);
+    const byProvider = providerFilter === 'all' ? base : base.filter((job) => job.provider === providerFilter);
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed) return byProvider;
+    return byProvider.filter((job) => job.kind.toLowerCase().includes(trimmed));
+  }, [jobs, statusFilter, providerFilter, query]);
+
+  const grouped = useMemo(() => {
+    const buckets = new Map<string, JobRow[]>();
+    for (const job of filteredByProvider) {
+      const list = buckets.get(job.status) ?? [];
+      list.push(job);
+      buckets.set(job.status, list);
+    }
+    return buckets;
+  }, [filteredByProvider]);
+
+  const providerOptions = useMemo(() => {
+    const set = new Set(jobs.map((job) => job.provider));
+    return Array.from(set.values()).sort();
+  }, [jobs]);
+
   if (!currentProject) return null;
 
   return (
@@ -70,7 +98,7 @@ export function QueuePage() {
         </Button>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[200px] border-2">
@@ -84,36 +112,63 @@ export function QueuePage() {
             <SelectItem value="failed">Ошибка</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={providerFilter} onValueChange={setProviderFilter}>
+          <SelectTrigger className="w-[200px] border-2">
+            <SelectValue placeholder="Provider" />
+          </SelectTrigger>
+          <SelectContent className="border-2 border-border bg-popover">
+            <SelectItem value="all">Все провайдеры</SelectItem>
+            {providerOptions.map((provider) => (
+              <SelectItem key={provider} value={provider}>
+                {provider}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по типу"
+          className="w-[220px] border-2"
+        />
       </div>
 
-      <div className="space-y-4">
-        {filtered.map((job) => (
-          <Card key={job.id} className="border-2 border-border">
-            <CardContent className="p-4">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium">{job.kind}</div>
-                  <Badge className="bg-muted text-muted-foreground border-border">
-                    {statusLabel[job.status] || job.status}
-                  </Badge>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Provider: {job.provider} · Attempts: {job.attempts}/{job.maxAttempts}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Created: {new Date(job.createdAt).toLocaleString()} · Next: {new Date(job.nextRunAt).toLocaleString()}
-                </div>
-                {job.lockedAt && (
-                  <div className="text-xs text-muted-foreground">
-                    Locked: {new Date(job.lockedAt).toLocaleString()} · {job.lockedBy || 'unknown'}
+      <div className="space-y-6">
+        {Array.from(grouped.entries()).map(([status, items]) => (
+          <div key={status} className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Layers className="h-4 w-4 text-muted-foreground" />
+              {statusLabel[status] || status} · {items.length}
+            </div>
+            {items.map((job) => (
+              <Card key={job.id} className="border-2 border-border">
+                <CardContent className="p-4">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium">{job.kind}</div>
+                      <Badge className="bg-muted text-muted-foreground border-border">
+                        {statusLabel[job.status] || job.status}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Provider: {job.provider} · Attempts: {job.attempts}/{job.maxAttempts}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Created: {new Date(job.createdAt).toLocaleString()} · Next: {new Date(job.nextRunAt).toLocaleString()}
+                    </div>
+                    {job.lockedAt && (
+                      <div className="text-xs text-muted-foreground">
+                        Locked: {new Date(job.lockedAt).toLocaleString()} · {job.lockedBy || 'unknown'}
+                      </div>
+                    )}
+                    {job.lastError && <div className="text-xs text-destructive">{job.lastError}</div>}
                   </div>
-                )}
-                {job.lastError && <div className="text-xs text-destructive">{job.lastError}</div>}
-              </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         ))}
-        {!filtered.length && (
+        {!filteredByProvider.length && (
           <div className="text-center py-8 border-2 border-dashed border-border">
             <p className="text-muted-foreground">Очередь пуста.</p>
           </div>
