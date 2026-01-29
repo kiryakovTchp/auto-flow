@@ -5,6 +5,7 @@ import { getRuntimeConfig } from './secure-config';
 export type OpenCodeMode = 'github-actions' | 'server-runner' | 'off';
 
 export type OpenCodeAuthMode = 'oauth' | 'local-cli';
+export type OpenCodeLogMode = 'safe' | 'raw';
 
 export type OpenCodeWriteMode = 'pr_only' | 'working_tree' | 'read_only';
 
@@ -19,6 +20,7 @@ export type OpenCodeConfigWarning = { key: string; message: string };
 export type OpenCodeProjectConfig = {
   mode: OpenCodeMode;
   authMode: OpenCodeAuthMode;
+  logMode: OpenCodeLogMode;
   localCliReady: boolean;
   command: string;
   prTimeoutMinutes: number;
@@ -34,6 +36,7 @@ const DEFAULT_PR_TIMEOUT_MINUTES = 60;
 const DEFAULT_OPENCODE_MODEL = 'openai/gpt-4o-mini';
 const DEFAULT_WRITE_MODE: OpenCodeWriteMode = 'pr_only';
 const DEFAULT_AUTH_MODE: OpenCodeAuthMode = 'oauth';
+const DEFAULT_LOG_MODE: OpenCodeLogMode = 'safe';
 
 export function normalizeOpenCodeMode(raw: string | null | undefined): OpenCodeMode | null {
   const v = String(raw ?? '').trim().toLowerCase();
@@ -72,6 +75,14 @@ export function normalizeAuthMode(raw: string | null | undefined): OpenCodeAuthM
   if (!v) return null;
   if (['oauth', 'openai', 'token'].includes(v)) return 'oauth';
   if (['local-cli', 'local', 'cli', 'manual'].includes(v)) return 'local-cli';
+  return null;
+}
+
+export function normalizeLogMode(raw: string | null | undefined): OpenCodeLogMode | null {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (!v) return null;
+  if (['safe', 'default', 'filtered'].includes(v)) return 'safe';
+  if (['raw', 'verbose', 'full'].includes(v)) return 'raw';
   return null;
 }
 
@@ -130,6 +141,7 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     timeoutRaw,
     modelRaw,
     workspaceRootRaw,
+    logModeRaw,
     authModeRaw,
     localCliReadyRaw,
     writeModeRaw,
@@ -141,6 +153,7 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     readSafe('OPENCODE_PR_TIMEOUT_MINUTES'),
     readSafe('OPENCODE_MODEL'),
     readSafe('OPENCODE_WORKSPACE_ROOT'),
+    readSafe('OPENCODE_LOG_MODE'),
     readSafe('OPENCODE_AUTH_MODE'),
     readSafe('OPENCODE_LOCAL_CLI_READY'),
     readSafe('OPENCODE_POLICY_WRITE_MODE'),
@@ -163,6 +176,7 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
 
   const authMode = normalizeAuthMode(authModeRaw) ?? DEFAULT_AUTH_MODE;
   const localCliReady = normalizeBoolFlag(localCliReadyRaw);
+  const logMode = normalizeLogMode(logModeRaw) ?? DEFAULT_LOG_MODE;
 
   const writeMode = normalizeWriteMode(writeModeRaw) ?? DEFAULT_WRITE_MODE;
   const denyPaths = normalizeDenyPaths(denyPathsRaw);
@@ -171,6 +185,7 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
   return {
     mode,
     authMode,
+    logMode,
     localCliReady,
     command,
     prTimeoutMinutes,

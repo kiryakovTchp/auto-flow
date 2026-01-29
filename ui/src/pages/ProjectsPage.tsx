@@ -47,15 +47,15 @@ export function ProjectsPage() {
       });
       await refreshProjects();
       toast({
-        title: 'Project Created',
-        description: `${newProject.name} has been created successfully.`,
+        title: 'Проект создан',
+        description: `Проект «${newProject.name}» успешно создан.`,
       });
       setIsCreateOpen(false);
       setNewProject({ name: '', slug: '' });
     } catch (err: any) {
       toast({
-        title: 'Create failed',
-        description: err?.message || 'Could not create project.',
+        title: 'Ошибка создания',
+        description: err?.message || 'Не удалось создать проект.',
         variant: 'destructive',
       });
     }
@@ -68,8 +68,8 @@ export function ProjectsPage() {
       setIsInviteOpen(true);
     } catch (err: any) {
       toast({
-        title: 'Invite failed',
-        description: err?.message || 'Could not create invite.',
+        title: 'Ошибка приглашения',
+        description: err?.message || 'Не удалось создать приглашение.',
         variant: 'destructive',
       });
     }
@@ -81,40 +81,40 @@ export function ProjectsPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Projects</h1>
+            <h1 className="text-3xl font-bold mb-2">Проекты</h1>
             <p className="text-muted-foreground">
-              Manage your orchestration projects
+              Управляйте проектами оркестрации
             </p>
           </div>
           
           <div className="flex items-center gap-2">
             <Button variant="outline" className="border-2" onClick={handleCreateInvite}>
-              Create Invite
+              Создать инвайт
             </Button>
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
                 <Button className="shadow-sm">
                   <Plus className="h-4 w-4 mr-2" />
-                  New Project
+                  Новый проект
                 </Button>
               </DialogTrigger>
               <DialogContent className="border-2 border-border">
                 <DialogHeader>
-                  <DialogTitle>Create New Project</DialogTitle>
+                  <DialogTitle>Создать проект</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 pt-4">
                   <div className="space-y-2">
-                    <Label htmlFor="name">Project Name</Label>
+                    <Label htmlFor="name">Название проекта</Label>
                     <Input
                       id="name"
                       value={newProject.name}
                       onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                      placeholder="My Project"
+                      placeholder="Мой проект"
                       className="border-2"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="slug">Project Slug</Label>
+                    <Label htmlFor="slug">Слаг проекта</Label>
                     <Input
                       id="slug"
                       value={newProject.slug}
@@ -124,7 +124,7 @@ export function ProjectsPage() {
                     />
                   </div>
                   <Button onClick={handleCreateProject} className="w-full shadow-sm">
-                    Create Project
+                    Создать проект
                   </Button>
                 </div>
               </DialogContent>
@@ -138,7 +138,7 @@ export function ProjectsPage() {
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search projects..."
+            placeholder="Поиск проектов..."
             className="pl-10 border-2"
           />
         </div>
@@ -189,13 +189,13 @@ export function ProjectsPage() {
 
         {isLoading && (
           <div className="text-center py-12">
-            <p className="text-muted-foreground">Loading projects...</p>
+            <p className="text-muted-foreground">Загрузка проектов...</p>
           </div>
         )}
 
         {!isLoading && filteredProjects.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-muted-foreground">No projects found</p>
+            <p className="text-muted-foreground">Проекты не найдены</p>
           </div>
         )}
       </div>
@@ -203,10 +203,10 @@ export function ProjectsPage() {
       <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
         <DialogContent className="border-2 border-border">
           <DialogHeader>
-            <DialogTitle>Invite Link</DialogTitle>
+            <DialogTitle>Ссылка приглашения</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 pt-2">
-            <Label>Share this link</Label>
+            <Label>Поделитесь ссылкой</Label>
             <Input value={inviteUrl} readOnly className="border-2" />
           </div>
         </DialogContent>

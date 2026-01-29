@@ -26,6 +26,12 @@ We support two modes:
 Auto-Flow posts the trigger comment when OpenCode mode is `github-actions`.
 Important: putting `/opencode implement` only in the issue body is not enough if the workflow listens to `issue_comment`.
 
+## Workspace cache (server-runner)
+- Repos are cached under `OPENCODE_WORKSPACE_ROOT/<owner>-<repo>/repo`.
+- Each run uses a git worktree under `OPENCODE_WORKSPACE_ROOT/<owner>-<repo>/worktrees/issue-<issue>-<run>`.
+- Worktrees are removed after each run to save disk.
+- Use Integrations → OpenCode → “Prepare repo cache” to pre-clone repos.
+
 ## PR Linking Contract (Auto-Flow)
 Auto-Flow links PR -> Issue by regex `Fixes #<issue_number>`.
 

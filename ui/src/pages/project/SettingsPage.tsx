@@ -29,6 +29,7 @@ type SettingsData = {
   opencode: {
     mode: string;
     authMode: string;
+    logMode: string;
     localCliReady: boolean;
     command: string;
     prTimeoutMinutes: number;
@@ -49,16 +50,16 @@ type SettingsData = {
 };
 
 const settingsSections = [
-  { id: 'secrets', label: 'Secrets', icon: Key },
+  { id: 'secrets', label: 'Секреты', icon: Key },
   { id: 'opencode', label: 'OpenCode', icon: Settings2 },
-  { id: 'asana-fields', label: 'Asana Fields', icon: Settings2 },
-  { id: 'asana-projects', label: 'Asana Projects', icon: Database },
-  { id: 'status-mapping', label: 'Status Mapping', icon: Map },
-  { id: 'repo-mapping', label: 'Repo Mapping', icon: Database },
-  { id: 'repos', label: 'Repositories', icon: GitBranch },
-  { id: 'api-tokens', label: 'API Tokens', icon: KeyRound },
-  { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
-  { id: 'links', label: 'Contacts & Links', icon: LinkIcon },
+  { id: 'asana-fields', label: 'Поля Asana', icon: Settings2 },
+  { id: 'asana-projects', label: 'Проекты Asana', icon: Database },
+  { id: 'status-mapping', label: 'Сопоставление статусов', icon: Map },
+  { id: 'repo-mapping', label: 'Сопоставление репозиториев', icon: Database },
+  { id: 'repos', label: 'Репозитории', icon: GitBranch },
+  { id: 'api-tokens', label: 'API токены', icon: KeyRound },
+  { id: 'knowledge', label: 'База знаний', icon: BookOpen },
+  { id: 'links', label: 'Контакты и ссылки', icon: LinkIcon },
 ];
 
 export function SettingsPage() {
@@ -82,6 +83,7 @@ export function SettingsPage() {
   const [opencodeForm, setOpencodeForm] = useState({
     mode: 'github-actions',
     authMode: 'oauth',
+    logMode: 'safe',
     localCliReady: false,
     command: '/opencode implement',
     prTimeoutMinutes: '60',
@@ -108,6 +110,7 @@ export function SettingsPage() {
     setOpencodeForm({
       mode: res.opencode.mode,
       authMode: res.opencode.authMode,
+      logMode: res.opencode.logMode,
       localCliReady: res.opencode.localCliReady,
       command: res.opencode.command,
       prTimeoutMinutes: String(res.opencode.prTimeoutMinutes),
@@ -133,11 +136,11 @@ export function SettingsPage() {
         method: 'POST',
         body: secretsForm,
       });
-      toast({ title: 'Secrets saved', description: 'Updated project secrets.' });
+      toast({ title: 'Секреты сохранены', description: 'Секреты проекта обновлены.' });
       setSecretsForm({ asana_pat: '', github_token: '', github_webhook_secret: '', opencode_workdir: '' });
       await refresh();
     } catch (err: any) {
-      toast({ title: 'Save failed', description: err?.message || 'Could not save secrets.', variant: 'destructive' });
+      toast({ title: 'Ошибка сохранения', description: err?.message || 'Не удалось сохранить секреты.', variant: 'destructive' });
     }
   };
 
@@ -152,6 +155,7 @@ export function SettingsPage() {
           opencode_pr_timeout_min: opencodeForm.prTimeoutMinutes,
           opencode_model: opencodeForm.model,
           opencode_workspace_root: opencodeForm.workspaceRoot,
+          opencode_log_mode: opencodeForm.logMode,
           opencode_auth_mode: opencodeForm.authMode,
           opencode_local_cli_ready: opencodeForm.localCliReady ? '1' : '',
           opencode_policy_write_mode: opencodeForm.writeMode,
@@ -159,10 +163,10 @@ export function SettingsPage() {
           opencode_policy_deny_paths: opencodeForm.denyPaths,
         },
       });
-      toast({ title: 'OpenCode saved', description: 'Runner settings updated.' });
+      toast({ title: 'OpenCode сохранен', description: 'Настройки раннера обновлены.' });
       await refresh();
     } catch (err: any) {
-      toast({ title: 'Save failed', description: err?.message || 'Could not save OpenCode settings.', variant: 'destructive' });
+      toast({ title: 'Ошибка сохранения', description: err?.message || 'Не удалось сохранить настройки OpenCode.', variant: 'destructive' });
     }
   };
 
@@ -175,25 +179,25 @@ export function SettingsPage() {
       ]),
     );
     if (!keys.length) {
-      toast({ title: 'No broken secrets', description: 'Nothing to reset.' });
+      toast({ title: 'Нет поврежденных секретов', description: 'Нечего сбрасывать.' });
       return;
     }
-    if (!window.confirm(`Reset ${keys.length} secret(s)? This will clear them.`)) return;
+    if (!window.confirm(`Сбросить ${keys.length} секрет(ов)? Это очистит их.`)) return;
     try {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/settings/secrets/reset`, {
         method: 'POST',
         body: { keys },
       });
-      toast({ title: 'Secrets reset', description: 'Please re-save the affected secrets.' });
+      toast({ title: 'Секреты сброшены', description: 'Пересохраните затронутые секреты.' });
       await refresh();
     } catch (err: any) {
-      toast({ title: 'Reset failed', description: err?.message || 'Could not reset secrets.', variant: 'destructive' });
+      toast({ title: 'Ошибка сброса', description: err?.message || 'Не удалось сбросить секреты.', variant: 'destructive' });
     }
   };
 
   const repairBrokenSecrets = async () => {
     if (!canManage || !currentProject) return;
-    if (!window.confirm('Repair secrets? Corrupted values will be cleared.')) return;
+    if (!window.confirm('Исправить секреты? Поврежденные значения будут очищены.')) return;
     try {
       const res = await apiFetch<{ result: { repaired: string[]; cleared: string[]; failed: Array<{ key: string; message: string }> } }>(
         `/projects/${encodeURIComponent(currentProject.slug)}/settings/secrets/repair`,
@@ -203,12 +207,12 @@ export function SettingsPage() {
       const cleared = res.result.cleared?.length ?? 0;
       const failed = res.result.failed?.length ?? 0;
       toast({
-        title: 'Secrets repaired',
-        description: `Repaired: ${repaired}, cleared: ${cleared}, failed: ${failed}. Please re-save cleared secrets.`,
+        title: 'Секреты восстановлены',
+        description: `Исправлено: ${repaired}, очищено: ${cleared}, ошибки: ${failed}. Пересохраните очищенные секреты.`,
       });
       await refresh();
     } catch (err: any) {
-      toast({ title: 'Repair failed', description: err?.message || 'Could not repair secrets.', variant: 'destructive' });
+      toast({ title: 'Ошибка восстановления', description: err?.message || 'Не удалось восстановить секреты.', variant: 'destructive' });
     }
   };
 
@@ -219,10 +223,10 @@ export function SettingsPage() {
         method: 'POST',
         body: asanaFieldForm,
       });
-      toast({ title: 'Asana fields saved', description: 'Custom field config updated.' });
+      toast({ title: 'Поля Asana сохранены', description: 'Конфигурация кастомных полей обновлена.' });
       await refresh();
     } catch (err: any) {
-      toast({ title: 'Save failed', description: err?.message || 'Could not save fields.', variant: 'destructive' });
+      toast({ title: 'Ошибка сохранения', description: err?.message || 'Не удалось сохранить поля.', variant: 'destructive' });
     }
   };
 
@@ -233,10 +237,10 @@ export function SettingsPage() {
         method: 'POST',
         body: { sample_task_gid: asanaDetectSample.trim() },
       });
-      toast({ title: 'Detection complete', description: res.ok ? 'Fields detected.' : 'Some fields missing.' });
+      toast({ title: 'Обнаружение завершено', description: res.ok ? 'Поля обнаружены.' : 'Некоторые поля не найдены.' });
       await refresh();
     } catch (err: any) {
-      toast({ title: 'Detect failed', description: err?.message || 'Could not detect fields.', variant: 'destructive' });
+      toast({ title: 'Ошибка обнаружения', description: err?.message || 'Не удалось определить поля.', variant: 'destructive' });
     }
   };
 
@@ -250,7 +254,7 @@ export function SettingsPage() {
       setStatusMapForm({ option_name: '', mapped_status: '' });
       await refresh();
     } catch (err: any) {
-      toast({ title: 'Add failed', description: err?.message || 'Could not add mapping.', variant: 'destructive' });
+      toast({ title: 'Ошибка добавления', description: err?.message || 'Не удалось добавить сопоставление.', variant: 'destructive' });
     }
   };
 
@@ -347,7 +351,7 @@ export function SettingsPage() {
       method: 'PUT',
       body: { markdown: knowledge },
     });
-    toast({ title: 'Knowledge saved', description: 'Project knowledge updated.' });
+    toast({ title: 'База знаний сохранена', description: 'Контекст проекта обновлен.' });
   };
 
   const addContact = async () => {
@@ -386,7 +390,7 @@ export function SettingsPage() {
     if (!settings) {
       return (
         <Card className="border-2 border-border">
-          <CardContent className="py-12 text-center text-muted-foreground">Loading settings...</CardContent>
+          <CardContent className="py-12 text-center text-muted-foreground">Загрузка настроек...</CardContent>
         </Card>
       );
     }
@@ -396,8 +400,8 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Project Secrets</CardTitle>
-              <CardDescription>Encrypted environment variables</CardDescription>
+              <CardTitle>Секреты проекта</CardTitle>
+              <CardDescription>Зашифрованные переменные окружения</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
@@ -407,7 +411,7 @@ export function SettingsPage() {
                     type="password"
                     value={secretsForm.asana_pat}
                     onChange={(e) => setSecretsForm((p) => ({ ...p, asana_pat: e.target.value }))}
-                    placeholder={settings.secrets.asanaPat ? '••••••••' : 'paste token'}
+                    placeholder={settings.secrets.asanaPat ? '••••••••' : 'вставьте токен'}
                     className="border-2"
                   />
                 </div>
@@ -417,7 +421,7 @@ export function SettingsPage() {
                     type="password"
                     value={secretsForm.github_token}
                     onChange={(e) => setSecretsForm((p) => ({ ...p, github_token: e.target.value }))}
-                    placeholder={settings.secrets.githubToken ? '••••••••' : 'paste token'}
+                    placeholder={settings.secrets.githubToken ? '••••••••' : 'вставьте токен'}
                     className="border-2"
                   />
                 </div>
@@ -427,12 +431,12 @@ export function SettingsPage() {
                     type="password"
                     value={secretsForm.github_webhook_secret}
                     onChange={(e) => setSecretsForm((p) => ({ ...p, github_webhook_secret: e.target.value }))}
-                    placeholder={settings.secrets.githubWebhookSecret ? '••••••••' : 'secret'}
+                    placeholder={settings.secrets.githubWebhookSecret ? '••••••••' : 'секрет'}
                     className="border-2"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>OpenCode Workdir</Label>
+                  <Label>Рабочая директория OpenCode</Label>
                   <Input
                     value={secretsForm.opencode_workdir}
                     onChange={(e) => setSecretsForm((p) => ({ ...p, opencode_workdir: e.target.value }))}
@@ -441,7 +445,7 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
-              {canManage && <Button onClick={submitSecrets}>Save Secrets</Button>}
+              {canManage && <Button onClick={submitSecrets}>Сохранить секреты</Button>}
             </CardContent>
           </Card>
         );
@@ -451,12 +455,12 @@ export function SettingsPage() {
           <Card className="border-2 border-border">
             <CardHeader>
               <CardTitle>OpenCode Runner</CardTitle>
-              <CardDescription>Configure how OpenCode runs for this project</CardDescription>
+              <CardDescription>Настройка запуска OpenCode для проекта</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Mode</Label>
+                  <Label>Режим</Label>
                   <Select value={opencodeForm.mode} onValueChange={(value) => setOpencodeForm((p) => ({ ...p, mode: value }))}>
                     <SelectTrigger className="border-2">
                       <SelectValue />
@@ -469,7 +473,7 @@ export function SettingsPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Auth Mode</Label>
+                  <Label>Режим авторизации</Label>
                   <Select value={opencodeForm.authMode} onValueChange={(value) => setOpencodeForm((p) => ({ ...p, authMode: value }))}>
                     <SelectTrigger className="border-2">
                       <SelectValue />
@@ -481,7 +485,7 @@ export function SettingsPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Write Mode</Label>
+                  <Label>Режим записи</Label>
                   <Select value={opencodeForm.writeMode} onValueChange={(value) => setOpencodeForm((p) => ({ ...p, writeMode: value }))}>
                     <SelectTrigger className="border-2">
                       <SelectValue />
@@ -494,7 +498,20 @@ export function SettingsPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Trigger Comment</Label>
+                  <Label>Режим логов</Label>
+                  <Select value={opencodeForm.logMode} onValueChange={(value) => setOpencodeForm((p) => ({ ...p, logMode: value }))}>
+                    <SelectTrigger className="border-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-2 border-border bg-popover">
+                      <SelectItem value="safe">safe (фильтрованные)</SelectItem>
+                      <SelectItem value="raw">raw (без фильтра)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Показывает stdout/stderr. Внутренние рассуждения скрыты.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Комментарий‑триггер</Label>
                   <Input
                     value={opencodeForm.command}
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, command: e.target.value }))}
@@ -502,7 +519,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>PR Timeout (minutes)</Label>
+                  <Label>Таймаут PR (мин)</Label>
                   <Input
                     value={opencodeForm.prTimeoutMinutes}
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, prTimeoutMinutes: e.target.value }))}
@@ -510,7 +527,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Model</Label>
+                  <Label>Модель</Label>
                   <Input
                     value={opencodeForm.model}
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, model: e.target.value }))}
@@ -518,7 +535,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Workspace Root</Label>
+                  <Label>Корень workspace</Label>
                   <Input
                     value={opencodeForm.workspaceRoot}
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, workspaceRoot: e.target.value }))}
@@ -530,10 +547,10 @@ export function SettingsPage() {
                     checked={opencodeForm.localCliReady}
                     onCheckedChange={(value) => setOpencodeForm((p) => ({ ...p, localCliReady: value }))}
                   />
-                  <Label>Local CLI Ready</Label>
+                  <Label>Local CLI готов</Label>
                 </div>
                 <div className="space-y-2">
-                  <Label>Max files changed</Label>
+                  <Label>Макс. измененных файлов</Label>
                   <Input
                     value={opencodeForm.maxFilesChanged}
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, maxFilesChanged: e.target.value }))}
@@ -541,7 +558,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <Label>Deny paths</Label>
+                  <Label>Запрещенные пути</Label>
                   <Textarea
                     value={opencodeForm.denyPaths}
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, denyPaths: e.target.value }))}
@@ -549,7 +566,7 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
-              {canManage && <Button onClick={submitOpencode}>Save OpenCode</Button>}
+              {canManage && <Button onClick={submitOpencode}>Сохранить OpenCode</Button>}
             </CardContent>
           </Card>
         );
@@ -558,13 +575,13 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Asana Custom Fields</CardTitle>
-              <CardDescription>Workspace + custom field GIDs</CardDescription>
+              <CardTitle>Кастомные поля Asana</CardTitle>
+              <CardDescription>Workspace и GID кастомных полей</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Workspace GID</Label>
+                  <Label>GID workspace</Label>
                   <Input
                     value={asanaFieldForm.workspace_gid}
                     onChange={(e) => setAsanaFieldForm((p) => ({ ...p, workspace_gid: e.target.value }))}
@@ -572,7 +589,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Auto Field GID</Label>
+                  <Label>GID поля Auto</Label>
                   <Input
                     value={asanaFieldForm.auto_field_gid}
                     onChange={(e) => setAsanaFieldForm((p) => ({ ...p, auto_field_gid: e.target.value }))}
@@ -580,7 +597,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Repo Field GID (enum)</Label>
+                  <Label>GID поля Repo (enum)</Label>
                   <Input
                     value={asanaFieldForm.repo_field_gid}
                     onChange={(e) => setAsanaFieldForm((p) => ({ ...p, repo_field_gid: e.target.value }))}
@@ -588,7 +605,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Status Field GID (enum)</Label>
+                  <Label>GID поля статуса (enum)</Label>
                   <Input
                     value={asanaFieldForm.status_field_gid}
                     onChange={(e) => setAsanaFieldForm((p) => ({ ...p, status_field_gid: e.target.value }))}
@@ -596,10 +613,10 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
-              {canManage && <Button onClick={submitAsanaFields}>Save Fields</Button>}
+              {canManage && <Button onClick={submitAsanaFields}>Сохранить поля</Button>}
 
               <div className="pt-4 border-t border-border">
-                <Label>Auto-detect from task/project URL</Label>
+                <Label>Автоопределение по ссылке задачи/проекта</Label>
                 <div className="flex gap-2 mt-2">
                   <Input
                     value={asanaDetectSample}
@@ -609,7 +626,7 @@ export function SettingsPage() {
                   />
                   {canManage && (
                     <Button variant="outline" className="border-2" onClick={detectAsanaFields}>
-                      Detect
+                      Определить
                     </Button>
                   )}
                 </div>
@@ -622,8 +639,8 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Asana Projects</CardTitle>
-              <CardDescription>Project GIDs used for sync</CardDescription>
+              <CardTitle>Проекты Asana</CardTitle>
+              <CardDescription>GID проектов для синхронизации</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
@@ -633,7 +650,7 @@ export function SettingsPage() {
                   placeholder="123456..."
                   className="border-2"
                 />
-                {canManage && <Button onClick={addAsanaProject}>Add</Button>}
+                {canManage && <Button onClick={addAsanaProject}>Добавить</Button>}
               </div>
               <div className="space-y-2">
                 {settings.asanaProjects.map((gid) => (
@@ -646,7 +663,7 @@ export function SettingsPage() {
                     )}
                   </div>
                 ))}
-                {!settings.asanaProjects.length && <div className="text-sm text-muted-foreground">No Asana projects.</div>}
+                {!settings.asanaProjects.length && <div className="text-sm text-muted-foreground">Нет проектов Asana.</div>}
               </div>
             </CardContent>
           </Card>
@@ -656,15 +673,15 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Status Mapping</CardTitle>
-              <CardDescription>Asana option name → status</CardDescription>
+              <CardTitle>Сопоставление статусов</CardTitle>
+              <CardDescription>Опция Asana → статус</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input
                   value={statusMapForm.option_name}
                   onChange={(e) => setStatusMapForm((p) => ({ ...p, option_name: e.target.value }))}
-                  placeholder="Cancelled"
+                  placeholder="Отменено"
                   className="border-2"
                 />
                 <Input
@@ -674,7 +691,7 @@ export function SettingsPage() {
                   className="border-2"
                 />
               </div>
-              {canManage && <Button onClick={addStatusMap}>Add Mapping</Button>}
+              {canManage && <Button onClick={addStatusMap}>Добавить сопоставление</Button>}
               <div className="space-y-2">
                 {settings.statusMap.map((m) => (
                   <div key={m.option_name} className="flex items-center justify-between p-3 border-2 border-border">
@@ -689,7 +706,7 @@ export function SettingsPage() {
                     )}
                   </div>
                 ))}
-                {!settings.statusMap.length && <div className="text-sm text-muted-foreground">No mappings yet.</div>}
+                {!settings.statusMap.length && <div className="text-sm text-muted-foreground">Сопоставлений пока нет.</div>}
               </div>
             </CardContent>
           </Card>
@@ -699,8 +716,8 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Repo Mapping</CardTitle>
-              <CardDescription>Override Asana option → owner/repo</CardDescription>
+              <CardTitle>Сопоставление репозиториев</CardTitle>
+              <CardDescription>Переопределение опции Asana → owner/repo</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2 sm:grid-cols-3">
@@ -723,7 +740,7 @@ export function SettingsPage() {
                   className="border-2"
                 />
               </div>
-              {canManage && <Button onClick={addRepoMap}>Add Override</Button>}
+              {canManage && <Button onClick={addRepoMap}>Добавить переопределение</Button>}
               <div className="space-y-2">
                 {settings.repoMap.map((m) => (
                   <div key={m.option_name} className="flex items-center justify-between p-3 border-2 border-border">
@@ -738,7 +755,7 @@ export function SettingsPage() {
                     )}
                   </div>
                 ))}
-                {!settings.repoMap.length && <div className="text-sm text-muted-foreground">No overrides.</div>}
+                {!settings.repoMap.length && <div className="text-sm text-muted-foreground">Переопределений нет.</div>}
               </div>
             </CardContent>
           </Card>
@@ -748,8 +765,8 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Connected Repositories</CardTitle>
-              <CardDescription>GitHub repositories linked to this project</CardDescription>
+              <CardTitle>Подключенные репозитории</CardTitle>
+              <CardDescription>GitHub репозитории, связанные с проектом</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2 sm:grid-cols-3">
@@ -770,22 +787,22 @@ export function SettingsPage() {
                     checked={repoForm.is_default}
                     onCheckedChange={(value) => setRepoForm((p) => ({ ...p, is_default: value }))}
                   />
-                  <Label>Default</Label>
+                  <Label>По умолчанию</Label>
                 </div>
               </div>
-              {canManage && <Button onClick={addRepo}>Add Repository</Button>}
+              {canManage && <Button onClick={addRepo}>Добавить репозиторий</Button>}
 
               <div className="space-y-2">
                 {settings.repos.map((repo) => (
                   <div key={`${repo.owner}/${repo.repo}`} className="flex items-center justify-between p-3 border-2 border-border">
                     <div>
                       <div className="font-medium">{repo.owner}/{repo.repo}</div>
-                      <div className="text-xs text-muted-foreground">{repo.is_default ? 'default' : 'secondary'}</div>
+                      <div className="text-xs text-muted-foreground">{repo.is_default ? 'по умолчанию' : 'дополнительный'}</div>
                     </div>
                     {canManage && (
                       <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" className="border-2" onClick={() => setDefaultRepo(repo.owner, repo.repo)}>
-                          Set default
+                          Сделать по умолчанию
                         </Button>
                         <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeRepo(repo.owner, repo.repo)}>
                           <Trash2 className="h-4 w-4" />
@@ -794,7 +811,7 @@ export function SettingsPage() {
                     )}
                   </div>
                 ))}
-                {!settings.repos.length && <div className="text-sm text-muted-foreground">No repositories.</div>}
+                {!settings.repos.length && <div className="text-sm text-muted-foreground">Репозиториев нет.</div>}
               </div>
             </CardContent>
           </Card>
@@ -804,13 +821,13 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>API Tokens</CardTitle>
-              <CardDescription>Project-scoped bearer tokens</CardDescription>
+              <CardTitle>API токены</CardTitle>
+              <CardDescription>Bearer токены на уровне проекта</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {createdToken && (
                 <div className="p-3 border-2 border-border bg-muted">
-                  <div className="text-xs text-muted-foreground">Token created (shown once)</div>
+                  <div className="text-xs text-muted-foreground">Токен создан (показывается один раз)</div>
                   <div className="font-mono text-sm break-all mt-2">{createdToken}</div>
                 </div>
               )}
@@ -818,16 +835,16 @@ export function SettingsPage() {
                 <Input
                   value={tokenName}
                   onChange={(e) => setTokenName(e.target.value)}
-                  placeholder="Token name (optional)"
+                    placeholder="Название токена (необязательно)"
                   className="border-2"
                 />
-                {canManage && <Button onClick={createApiToken}>Generate</Button>}
+                {canManage && <Button onClick={createApiToken}>Создать</Button>}
               </div>
               <div className="space-y-2">
                 {settings.apiTokens.map((t) => (
                   <div key={t.id} className="flex items-center justify-between p-3 border-2 border-border">
                     <div>
-                      <div className="font-medium">{t.name || '(unnamed)'}</div>
+                      <div className="font-medium">{t.name || '(без имени)'}</div>
                       <div className="text-xs text-muted-foreground">{t.tokenHash.slice(0, 10)}...</div>
                     </div>
                     {canManage && !t.revokedAt && (
@@ -837,7 +854,7 @@ export function SettingsPage() {
                     )}
                   </div>
                 ))}
-                {!settings.apiTokens.length && <div className="text-sm text-muted-foreground">No tokens yet.</div>}
+                {!settings.apiTokens.length && <div className="text-sm text-muted-foreground">Токенов пока нет.</div>}
               </div>
             </CardContent>
           </Card>
@@ -847,8 +864,8 @@ export function SettingsPage() {
         return (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Knowledge Base</CardTitle>
-              <CardDescription>Context and documentation for AI assistance</CardDescription>
+              <CardTitle>База знаний</CardTitle>
+              <CardDescription>Контекст и документация для AI помощника</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Textarea
@@ -857,7 +874,7 @@ export function SettingsPage() {
                 className="border-2 min-h-48"
                 disabled={!canManage}
               />
-              {canManage && <Button onClick={saveKnowledge}>Save Changes</Button>}
+              {canManage && <Button onClick={saveKnowledge}>Сохранить изменения</Button>}
             </CardContent>
           </Card>
         );
@@ -867,31 +884,31 @@ export function SettingsPage() {
           <div className="space-y-6">
             <Card className="border-2 border-border">
               <CardHeader>
-                <CardTitle>Contacts</CardTitle>
-                <CardDescription>Team contacts and escalation points</CardDescription>
+                <CardTitle>Контакты</CardTitle>
+                <CardDescription>Контакты команды и точки эскалации</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-2 sm:grid-cols-3">
                   <Input
                     value={contactForm.role}
                     onChange={(e) => setContactForm((p) => ({ ...p, role: e.target.value }))}
-                    placeholder="Role"
+                    placeholder="Роль"
                     className="border-2"
                   />
                   <Input
                     value={contactForm.name}
                     onChange={(e) => setContactForm((p) => ({ ...p, name: e.target.value }))}
-                    placeholder="Name"
+                    placeholder="Имя"
                     className="border-2"
                   />
                   <Input
                     value={contactForm.handle}
                     onChange={(e) => setContactForm((p) => ({ ...p, handle: e.target.value }))}
-                    placeholder="Handle"
+                    placeholder="Контакт"
                     className="border-2"
                   />
                 </div>
-                {canManage && <Button onClick={addContact}>Add Contact</Button>}
+                {canManage && <Button onClick={addContact}>Добавить контакт</Button>}
                 <div className="space-y-2">
                   {settings.contacts.map((c) => (
                     <div key={c.id} className="flex items-center justify-between p-3 border-2 border-border">
@@ -906,28 +923,28 @@ export function SettingsPage() {
                       )}
                     </div>
                   ))}
-                  {!settings.contacts.length && <div className="text-sm text-muted-foreground">No contacts.</div>}
+                  {!settings.contacts.length && <div className="text-sm text-muted-foreground">Контактов нет.</div>}
                 </div>
               </CardContent>
             </Card>
 
             <Card className="border-2 border-border">
               <CardHeader>
-                <CardTitle>Links</CardTitle>
-                <CardDescription>Docs, dashboards, runbooks</CardDescription>
+                <CardTitle>Ссылки</CardTitle>
+                <CardDescription>Документы, дашборды, runbooks</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Input
                     value={linkForm.kind}
                     onChange={(e) => setLinkForm((p) => ({ ...p, kind: e.target.value }))}
-                    placeholder="Kind"
+                    placeholder="Тип"
                     className="border-2"
                   />
                   <Input
                     value={linkForm.title}
                     onChange={(e) => setLinkForm((p) => ({ ...p, title: e.target.value }))}
-                    placeholder="Title"
+                    placeholder="Название"
                     className="border-2"
                   />
                   <Input
@@ -939,11 +956,11 @@ export function SettingsPage() {
                   <Input
                     value={linkForm.tags}
                     onChange={(e) => setLinkForm((p) => ({ ...p, tags: e.target.value }))}
-                    placeholder="Tags"
+                    placeholder="Теги"
                     className="border-2"
                   />
                 </div>
-                {canManage && <Button onClick={addLink}>Add Link</Button>}
+                {canManage && <Button onClick={addLink}>Добавить ссылку</Button>}
                 <div className="space-y-2">
                   {settings.links.map((l) => (
                     <div key={l.id} className="flex items-center justify-between p-3 border-2 border-border">
@@ -958,7 +975,7 @@ export function SettingsPage() {
                       )}
                     </div>
                   ))}
-                  {!settings.links.length && <div className="text-sm text-muted-foreground">No links.</div>}
+                  {!settings.links.length && <div className="text-sm text-muted-foreground">Ссылок нет.</div>}
                 </div>
               </CardContent>
             </Card>
@@ -968,7 +985,7 @@ export function SettingsPage() {
       default:
         return (
           <Card className="border-2 border-border">
-            <CardContent className="py-12 text-center text-muted-foreground">Section not found.</CardContent>
+          <CardContent className="py-12 text-center text-muted-foreground">Раздел не найден.</CardContent>
           </Card>
         );
     }
@@ -978,25 +995,25 @@ export function SettingsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">Configure project settings and integrations</p>
+          <h1 className="text-2xl font-bold">Настройки</h1>
+          <p className="text-muted-foreground">Настройка проекта и интеграций</p>
         </div>
         <Button variant="outline" className="border-2" onClick={refresh}>
           <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
+          Обновить
         </Button>
       </div>
 
       {(settings?.secretErrors?.length || settings?.opencode?.warnings?.length) && (
         <Card className="border-2 border-destructive">
           <CardHeader>
-            <CardTitle>Configuration warnings</CardTitle>
-            <CardDescription>Some stored secrets could not be decrypted. Please re-save them.</CardDescription>
+            <CardTitle>Предупреждения конфигурации</CardTitle>
+            <CardDescription>Некоторые секреты не удалось расшифровать. Пересохраните их.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {settings?.secretErrors?.map((err, idx) => (
               <div key={`secret-${idx}`} className="text-destructive">
-                Secret {err.key}: {err.message}
+                Секрет {err.key}: {err.message}
               </div>
             ))}
             {settings?.opencode?.warnings?.map((err, idx) => (
@@ -1005,8 +1022,8 @@ export function SettingsPage() {
               </div>
             ))}
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={repairBrokenSecrets}>Repair broken secrets</Button>
-              <Button variant="destructive" onClick={resetBrokenSecrets}>Reset broken secrets</Button>
+              <Button variant="outline" onClick={repairBrokenSecrets}>Исправить секреты</Button>
+              <Button variant="destructive" onClick={resetBrokenSecrets}>Сбросить секреты</Button>
             </div>
           </CardContent>
         </Card>

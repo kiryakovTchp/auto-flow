@@ -1,0 +1,50 @@
+{
+  "color": {
+    "brand": {
+      "primary": "#4F46E5",
+      "secondary": "#06B6D4",
+      "accent": "#F59E0B"
+    },
+    "bg": {
+      "page": "#0B1020",
+      "surface": "#141A2A",
+      "surfaceLight": "#1F2540"
+    },
+    "text": {
+      "primary": "#E5E7EB",
+      "secondary": "#D1D5DB",
+      "muted": "#64748B"
+    },
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "error": "#EF4444"
+  },
+  "typography": {
+    "fontFamily": "\"Inter\", system-ui, -apple-system, Segoe UI, Roboto",
+    "fontSizes": {
+      "xs": 12,
+      "sm": 14,
+      "base": 14,
+      "lg": 18,
+      "xl": 22,
+      "2xl": 28
+    }
+  },
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32
+  },
+  "radii": {
+    "sm": 6,
+    "md": 12,
+    "lg": 16,
+    "circle": 9999
+  },
+  "shadow": {
+    "sm": "0 1px 2px rgba(0,0,0,.08)",
+    "md": "0 4px 12px rgba(0,0,0,.16)"
+  }
+}

@@ -97,9 +97,9 @@ export function TaskDetailPage() {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/tasks/${encodeURIComponent(taskId)}/actions/opencode-run`, {
         method: 'POST',
       });
-      toast({ title: 'OpenCode triggered', description: 'Run queued or comment posted.' });
+      toast({ title: 'OpenCode запущен', description: 'Запуск поставлен в очередь или комментарий опубликован.' });
     } catch (err: any) {
-      toast({ title: 'Run failed', description: err?.message || 'Could not start OpenCode.', variant: 'destructive' });
+      toast({ title: 'Ошибка запуска', description: err?.message || 'Не удалось запустить OpenCode.', variant: 'destructive' });
     }
   };
 
@@ -109,9 +109,9 @@ export function TaskDetailPage() {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/tasks/${encodeURIComponent(taskId)}/actions/resync`, {
         method: 'POST',
       });
-      toast({ title: 'Resync started', description: 'Task will re-sync from Asana.' });
+      toast({ title: 'Пересинхронизация запущена', description: 'Задача будет повторно синхронизирована из Asana.' });
     } catch (err: any) {
-      toast({ title: 'Resync failed', description: err?.message || 'Could not resync task.', variant: 'destructive' });
+      toast({ title: 'Ошибка синхронизации', description: err?.message || 'Не удалось пересинхронизировать задачу.', variant: 'destructive' });
     }
   };
 
@@ -121,9 +121,9 @@ export function TaskDetailPage() {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/tasks/${encodeURIComponent(taskId)}/actions/retry`, {
         method: 'POST',
       });
-      toast({ title: 'Retry started', description: 'Pipeline retried.' });
+      toast({ title: 'Повторный запуск', description: 'Пайплайн перезапущен.' });
     } catch (err: any) {
-      toast({ title: 'Retry failed', description: err?.message || 'Could not retry task.', variant: 'destructive' });
+      toast({ title: 'Ошибка повтора', description: err?.message || 'Не удалось повторить задачу.', variant: 'destructive' });
     }
   };
 
@@ -135,10 +135,10 @@ export function TaskDetailPage() {
         body: { note: note.trim() },
       });
       setNote('');
-      toast({ title: 'Note posted', description: 'Comment added to Asana.' });
+      toast({ title: 'Заметка отправлена', description: 'Комментарий добавлен в Asana.' });
       await load();
     } catch (err: any) {
-      toast({ title: 'Note failed', description: err?.message || 'Could not post note.', variant: 'destructive' });
+      toast({ title: 'Ошибка заметки', description: err?.message || 'Не удалось отправить заметку.', variant: 'destructive' });
     }
   };
 
@@ -150,10 +150,10 @@ export function TaskDetailPage() {
         body: { pr: linkPr.pr.trim(), repo: linkPr.repo || undefined },
       });
       setLinkPr({ pr: '', repo: '' });
-      toast({ title: 'PR linked', description: 'Task updated with PR info.' });
+      toast({ title: 'PR привязан', description: 'Задача обновлена данными PR.' });
       await load();
     } catch (err: any) {
-      toast({ title: 'Link failed', description: err?.message || 'Could not link PR.', variant: 'destructive' });
+      toast({ title: 'Ошибка привязки', description: err?.message || 'Не удалось привязать PR.', variant: 'destructive' });
     }
   };
 
@@ -164,10 +164,10 @@ export function TaskDetailPage() {
         method: 'POST',
         body: { repo: changeRepo },
       });
-      toast({ title: 'Repo updated', description: 'Repo updated in Asana.' });
+      toast({ title: 'Репозиторий обновлен', description: 'Репозиторий обновлен в Asana.' });
       await load();
     } catch (err: any) {
-      toast({ title: 'Change failed', description: err?.message || 'Could not change repo.', variant: 'destructive' });
+      toast({ title: 'Ошибка изменения', description: err?.message || 'Не удалось изменить репозиторий.', variant: 'destructive' });
     }
   };
 
@@ -178,22 +178,22 @@ export function TaskDetailPage() {
         method: 'POST',
         body: { repo: createIssueRepo },
       });
-      toast({ title: 'Issue creation started', description: 'Pipeline triggered after setting repo.' });
+      toast({ title: 'Создание issue запущено', description: 'Пайплайн запущен после выбора репозитория.' });
       await load();
     } catch (err: any) {
-      toast({ title: 'Create issue failed', description: err?.message || 'Could not create issue.', variant: 'destructive' });
+      toast({ title: 'Ошибка создания issue', description: err?.message || 'Не удалось создать issue.', variant: 'destructive' });
     }
   };
 
   if (isLoading && !task) {
     return (
-      <div className="text-muted-foreground text-sm">Loading task...</div>
+      <div className="text-muted-foreground text-sm">Загрузка задачи...</div>
     );
   }
 
   if (!task) {
     return (
-      <div className="text-muted-foreground text-sm">Task not found.</div>
+      <div className="text-muted-foreground text-sm">Задача не найдена.</div>
     );
   }
 
@@ -223,33 +223,33 @@ export function TaskDetailPage() {
             <div className="flex flex-wrap gap-2">
               <Button className="shadow-xs" onClick={runOpenCode}>
                 <Play className="h-4 w-4 mr-2" />
-                Run OpenCode
+                Запустить OpenCode
               </Button>
               <Button variant="outline" className="border-2" onClick={retry}>
                 <RotateCcw className="h-4 w-4 mr-2" />
-                Retry
+                Повторить
               </Button>
               <Button variant="outline" className="border-2" onClick={resync}>
                 <RefreshCw className="h-4 w-4 mr-2" />
-                Resync
+                Пересинхронизировать
               </Button>
               {task.status === 'NEEDS_REPO' && !task.githubIssueNumber && (
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button variant="outline" className="border-2">
                       <GitBranch className="h-4 w-4 mr-2" />
-                      Create Issue
+                      Создать issue
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="border-2 border-border">
                     <DialogHeader>
-                      <DialogTitle>Create Issue</DialogTitle>
+                    <DialogTitle>Создать issue</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-3 pt-2">
-                      <Label>Repository</Label>
+                      <Label>Репозиторий</Label>
                       <Select value={createIssueRepo} onValueChange={setCreateIssueRepo}>
                         <SelectTrigger className="border-2">
-                          <SelectValue placeholder="Select repo" />
+                        <SelectValue placeholder="Выберите репозиторий" />
                         </SelectTrigger>
                         <SelectContent className="border-2 border-border bg-popover">
                           {repoOptions.map((v) => (
@@ -260,7 +260,7 @@ export function TaskDetailPage() {
                         </SelectContent>
                       </Select>
                       <Button onClick={submitCreateIssue} className="w-full">
-                        Trigger Pipeline
+                        Запустить пайплайн
                       </Button>
                     </div>
                   </DialogContent>
@@ -271,18 +271,18 @@ export function TaskDetailPage() {
                   <DialogTrigger asChild>
                     <Button variant="outline" className="border-2">
                       <GitBranch className="h-4 w-4 mr-2" />
-                      Change Repo
+                      Изменить репозиторий
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="border-2 border-border">
                     <DialogHeader>
-                      <DialogTitle>Change Repository</DialogTitle>
+                    <DialogTitle>Изменить репозиторий</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-3 pt-2">
-                      <Label>Repository</Label>
+                      <Label>Репозиторий</Label>
                       <Select value={changeRepo} onValueChange={setChangeRepo}>
                         <SelectTrigger className="border-2">
-                          <SelectValue placeholder="Select repo" />
+                        <SelectValue placeholder="Выберите репозиторий" />
                         </SelectTrigger>
                         <SelectContent className="border-2 border-border bg-popover">
                           {repoOptions.map((v) => (
@@ -293,7 +293,7 @@ export function TaskDetailPage() {
                         </SelectContent>
                       </Select>
                       <Button onClick={submitChangeRepo} className="w-full">
-                        Update Repo
+                        Обновить репозиторий
                       </Button>
                     </div>
                   </DialogContent>
@@ -304,16 +304,16 @@ export function TaskDetailPage() {
                   <DialogTrigger asChild>
                     <Button variant="outline" className="border-2">
                       <GitBranch className="h-4 w-4 mr-2" />
-                      Link PR
+                      Привязать PR
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="border-2 border-border">
                     <DialogHeader>
-                      <DialogTitle>Link PR</DialogTitle>
+                    <DialogTitle>Привязать PR</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-3 pt-2">
                       <div className="space-y-2">
-                        <Label>PR Number or URL</Label>
+                        <Label>Номер PR или URL</Label>
                         <Input
                           value={linkPr.pr}
                           onChange={(e) => setLinkPr((prev) => ({ ...prev, pr: e.target.value }))}
@@ -322,13 +322,13 @@ export function TaskDetailPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Repository (optional)</Label>
+                        <Label>Репозиторий (необязательно)</Label>
                         <Select value={linkPr.repo} onValueChange={(value) => setLinkPr((prev) => ({ ...prev, repo: value }))}>
                           <SelectTrigger className="border-2">
-                            <SelectValue placeholder="Use task/default" />
+                          <SelectValue placeholder="Использовать задачу/по умолчанию" />
                           </SelectTrigger>
                           <SelectContent className="border-2 border-border bg-popover">
-                            <SelectItem value="">(use task/default)</SelectItem>
+                            <SelectItem value="">(использовать задачу/по умолчанию)</SelectItem>
                             {repoOptions.map((v) => (
                               <SelectItem key={v} value={v}>
                                 {v}
@@ -338,7 +338,7 @@ export function TaskDetailPage() {
                         </Select>
                       </div>
                       <Button onClick={submitLinkPr} className="w-full">
-                        Link PR
+                        Привязать PR
                       </Button>
                     </div>
                   </DialogContent>
@@ -348,22 +348,22 @@ export function TaskDetailPage() {
                 <DialogTrigger asChild>
                   <Button variant="outline" className="border-2">
                     <MessageSquare className="h-4 w-4 mr-2" />
-                    Add Asana Note
+                    Добавить заметку в Asana
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="border-2 border-border">
                   <DialogHeader>
-                    <DialogTitle>Post Note to Asana</DialogTitle>
+                  <DialogTitle>Отправить заметку в Asana</DialogTitle>
                   </DialogHeader>
                   <div className="space-y-3 pt-2">
                     <Textarea
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
-                      placeholder="Your comment..."
+                      placeholder="Ваш комментарий..."
                       className="border-2"
                     />
                     <Button onClick={submitNote} className="w-full">
-                      Post Note
+                      Отправить заметку
                     </Button>
                   </div>
                 </DialogContent>
@@ -371,7 +371,7 @@ export function TaskDetailPage() {
               {task.githubPrUrl && (
                 <Button variant="outline" className="border-2" onClick={() => window.open(task.githubPrUrl || '', '_blank')}>
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  View PR
+                  Открыть PR
                 </Button>
               )}
             </div>
@@ -386,31 +386,31 @@ export function TaskDetailPage() {
             className="border-2 border-transparent data-[state=active]:border-border data-[state=active]:bg-accent"
           >
             <FileText className="h-4 w-4 mr-2" />
-            Spec
+            Спека
           </TabsTrigger>
           <TabsTrigger
             value="timeline"
             className="border-2 border-transparent data-[state=active]:border-border data-[state=active]:bg-accent"
           >
             <Clock className="h-4 w-4 mr-2" />
-            Timeline
+            Таймлайн
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="spec" className="mt-4">
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle className="text-base font-medium">Task Specification</CardTitle>
+              <CardTitle className="text-base font-medium">Спецификация задачи</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="prose prose-sm max-w-none">
                 <pre className="bg-muted p-4 border-2 border-border text-sm whitespace-pre-wrap font-mono">
-                  {data?.latestSpec?.content || 'No TaskSpec yet'}
+                  {data?.latestSpec?.content || 'Пока нет TaskSpec'}
                 </pre>
               </div>
               {data?.latestSpec?.createdAt && (
                 <p className="text-xs text-muted-foreground mt-4">
-                  Generated {new Date(data.latestSpec.createdAt).toLocaleString()}
+                  Сгенерировано {new Date(data.latestSpec.createdAt).toLocaleString()}
                 </p>
               )}
               {data?.specs?.length ? (
@@ -434,7 +434,7 @@ export function TaskDetailPage() {
         <TabsContent value="timeline" className="mt-4">
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle className="text-base font-medium">Event Timeline</CardTitle>
+              <CardTitle className="text-base font-medium">Лента событий</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -452,7 +452,7 @@ export function TaskDetailPage() {
                     </div>
                   </div>
                 ))}
-                {!data?.events?.length && <div className="text-sm text-muted-foreground">No activity yet.</div>}
+                {!data?.events?.length && <div className="text-sm text-muted-foreground">Пока нет активности.</div>}
               </div>
             </CardContent>
           </Card>
@@ -461,13 +461,13 @@ export function TaskDetailPage() {
 
       <Card className="border-2 border-border">
         <CardHeader>
-          <CardTitle className="text-base font-medium">Links & References</CardTitle>
+          <CardTitle className="text-base font-medium">Ссылки и источники</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2">
             {task.asanaTaskId && (
               <div className="p-3 border-2 border-border">
-                <p className="text-xs text-muted-foreground mb-1">Asana Task</p>
+                <p className="text-xs text-muted-foreground mb-1">Задача Asana</p>
                 <span className="text-sm font-medium">{task.asanaTaskId}</span>
               </div>
             )}

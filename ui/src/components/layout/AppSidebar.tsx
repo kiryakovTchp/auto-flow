@@ -47,12 +47,12 @@ export function AppSidebar() {
   const isActive = (path: string) => location.pathname.startsWith(path);
   const navItems = currentProject
     ? [
-        { title: 'Overview', url: `/p/${currentProject.slug}/overview`, icon: LayoutDashboard },
-        { title: 'Tasks', url: `/p/${currentProject.slug}/tasks`, icon: ListTodo },
-        { title: 'Integrations', url: `/p/${currentProject.slug}/integrations`, icon: Plug },
-        { title: 'Webhooks', url: `/p/${currentProject.slug}/webhooks`, icon: Webhook },
-        { title: 'Runs', url: `/p/${currentProject.slug}/runs`, icon: Play },
-        { title: 'Settings', url: `/p/${currentProject.slug}/settings`, icon: Settings },
+        { title: 'Обзор', url: `/p/${currentProject.slug}/overview`, icon: LayoutDashboard },
+        { title: 'Задачи', url: `/p/${currentProject.slug}/tasks`, icon: ListTodo },
+        { title: 'Интеграции', url: `/p/${currentProject.slug}/integrations`, icon: Plug },
+        { title: 'Вебхуки', url: `/p/${currentProject.slug}/webhooks`, icon: Webhook },
+        { title: 'Запуски', url: `/p/${currentProject.slug}/runs`, icon: Play },
+        { title: 'Настройки', url: `/p/${currentProject.slug}/settings`, icon: Settings },
       ]
     : [];
 
@@ -71,7 +71,7 @@ export function AppSidebar() {
         {/* Project Switcher */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs uppercase tracking-wide text-muted-foreground">
-            {!collapsed && 'Project'}
+            {!collapsed && 'Проект'}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <DropdownMenu>
@@ -81,7 +81,7 @@ export function AppSidebar() {
                   {!collapsed && (
                     <>
                       <span className="flex-1 text-left truncate">
-                        {currentProject?.name || 'Select Project'}
+                        {currentProject?.name || 'Выберите проект'}
                       </span>
                       <ChevronDown className="h-4 w-4" />
                     </>
@@ -110,9 +110,9 @@ export function AppSidebar() {
                 ))}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <NavLink to="/projects" className="flex items-center gap-2">
-                    <span>View All Projects</span>
-                  </NavLink>
+                    <NavLink to="/projects" className="flex items-center gap-2">
+                      <span>Все проекты</span>
+                    </NavLink>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -123,7 +123,7 @@ export function AppSidebar() {
         {currentProject && (
           <SidebarGroup>
             <SidebarGroupLabel className="text-xs uppercase tracking-wide text-muted-foreground">
-              {!collapsed && 'Navigation'}
+              {!collapsed && 'Навигация'}
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
@@ -182,7 +182,7 @@ export function AppSidebar() {
               className="text-destructive"
             >
               <LogOut className="h-4 w-4 mr-2" />
-              Logout
+                Выйти
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

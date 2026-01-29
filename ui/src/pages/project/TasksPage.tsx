@@ -55,11 +55,26 @@ const statusFilters: TaskStatus[] = [
   'FAILED',
 ];
 
+const statusLabels: Record<TaskStatus, string> = {
+  RECEIVED: 'Получено',
+  TASKSPEC_CREATED: 'Спека создана',
+  NEEDS_REPO: 'Нужен репозиторий',
+  AUTO_DISABLED: 'Авто отключено',
+  CANCELLED: 'Отменено',
+  BLOCKED: 'Заблокировано',
+  ISSUE_CREATED: 'Issue создан',
+  PR_CREATED: 'PR создан',
+  WAITING_CI: 'Ожидание CI',
+  DEPLOYED: 'Задеплоено',
+  FAILED: 'Ошибка',
+};
+
 export function TasksPage() {
   const { currentProject } = useProject();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sortOrder, setSortOrder] = useState('updated_desc');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -91,8 +106,25 @@ export function TasksPage() {
   }, [currentProject, isCreateOpen]);
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => task.title.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [tasks, searchQuery]);
+    const filtered = tasks.filter((task) => task.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    const getTime = (value: string) => {
+      const time = new Date(value).getTime();
+      return Number.isFinite(time) ? time : 0;
+    };
+    return [...filtered].sort((a, b) => {
+      switch (sortOrder) {
+        case 'updated_asc':
+          return getTime(a.updatedAt) - getTime(b.updatedAt);
+        case 'created_desc':
+          return getTime(b.createdAt) - getTime(a.createdAt);
+        case 'created_asc':
+          return getTime(a.createdAt) - getTime(b.createdAt);
+        case 'updated_desc':
+        default:
+          return getTime(b.updatedAt) - getTime(a.updatedAt);
+      }
+    });
+  }, [tasks, searchQuery, sortOrder]);
 
   const runOpenCode = async (taskId: string) => {
     if (!currentProject) return;
@@ -100,9 +132,9 @@ export function TasksPage() {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/tasks/${taskId}/actions/opencode-run`, {
         method: 'POST',
       });
-      toast({ title: 'OpenCode triggered', description: 'Run queued or comment posted.' });
+      toast({ title: 'OpenCode запущен', description: 'Запуск поставлен в очередь или комментарий опубликован.' });
     } catch (err: any) {
-      toast({ title: 'Run failed', description: err?.message || 'Could not start OpenCode.', variant: 'destructive' });
+      toast({ title: 'Ошибка запуска', description: err?.message || 'Не удалось запустить OpenCode.', variant: 'destructive' });
     }
   };
 
@@ -112,9 +144,9 @@ export function TasksPage() {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/tasks/${taskId}/actions/resync`, {
         method: 'POST',
       });
-      toast({ title: 'Resync started', description: 'Task will re-sync from Asana.' });
+      toast({ title: 'Пересинхронизация запущена', description: 'Задача будет повторно синхронизирована из Asana.' });
     } catch (err: any) {
-      toast({ title: 'Resync failed', description: err?.message || 'Could not resync task.', variant: 'destructive' });
+      toast({ title: 'Ошибка синхронизации', description: err?.message || 'Не удалось пересинхронизировать задачу.', variant: 'destructive' });
     }
   };
 
@@ -131,7 +163,7 @@ export function TasksPage() {
           auto_enabled: newTask.autoEnabled,
         },
       });
-      toast({ title: 'Task created', description: 'Asana task created and pipeline triggered.' });
+      toast({ title: 'Задача создана', description: 'Задача создана в Asana и пайплайн запущен.' });
       setIsCreateOpen(false);
       setNewTask({ title: '', notes: '', repo: '', asanaProjectGid: '', autoEnabled: true });
       if (currentProject) {
@@ -139,7 +171,7 @@ export function TasksPage() {
         setTasks(res.tasks);
       }
     } catch (err: any) {
-      toast({ title: 'Create failed', description: err?.message || 'Could not create task.', variant: 'destructive' });
+      toast({ title: 'Ошибка создания', description: err?.message || 'Не удалось создать задачу.', variant: 'destructive' });
     }
   };
 
@@ -147,41 +179,41 @@ export function TasksPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Tasks</h1>
-          <p className="text-muted-foreground">{filteredTasks.length} tasks</p>
+          <h1 className="text-2xl font-bold">Задачи</h1>
+          <p className="text-muted-foreground">{filteredTasks.length} задач</p>
         </div>
         {canEdit && (
           <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
             <DialogTrigger asChild>
               <Button className="shadow-sm">
                 <Plus className="h-4 w-4 mr-2" />
-                Create Task
+                Создать задачу
               </Button>
             </DialogTrigger>
             <DialogContent className="border-2 border-border">
               <DialogHeader>
-                <DialogTitle>Create Task in Asana</DialogTitle>
+                <DialogTitle>Создать задачу в Asana</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 pt-2">
                 <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
+                  <Label htmlFor="title">Название</Label>
                   <Input
                     id="title"
                     value={newTask.title}
                     onChange={(e) => setNewTask((prev) => ({ ...prev, title: e.target.value }))}
-                    placeholder="Fix login button alignment"
+                    placeholder="Исправить выравнивание кнопки входа"
                     className="border-2"
                   />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Asana Project</Label>
+                    <Label>Проект Asana</Label>
                     <Select
                       value={newTask.asanaProjectGid}
                       onValueChange={(value) => setNewTask((prev) => ({ ...prev, asanaProjectGid: value }))}
                     >
                       <SelectTrigger className="border-2">
-                        <SelectValue placeholder="Select Asana project" />
+                        <SelectValue placeholder="Выберите проект Asana" />
                       </SelectTrigger>
                       <SelectContent className="border-2 border-border bg-popover">
                         {asanaProjects.map((gid) => (
@@ -193,16 +225,16 @@ export function TasksPage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Repository (optional)</Label>
+                    <Label>Репозиторий (необязательно)</Label>
                     <Select
                       value={newTask.repo}
                       onValueChange={(value) => setNewTask((prev) => ({ ...prev, repo: value }))}
                     >
                       <SelectTrigger className="border-2">
-                        <SelectValue placeholder="Select repo" />
+                        <SelectValue placeholder="Выберите репозиторий" />
                       </SelectTrigger>
                       <SelectContent className="border-2 border-border bg-popover">
-                        <SelectItem value="">(none)</SelectItem>
+                        <SelectItem value="">(нет)</SelectItem>
                         {repos.map((r) => {
                           const v = `${r.owner}/${r.repo}`;
                           return (
@@ -216,17 +248,17 @@ export function TasksPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="notes">Notes (optional)</Label>
+                  <Label htmlFor="notes">Описание (необязательно)</Label>
                   <Textarea
                     id="notes"
                     value={newTask.notes}
                     onChange={(e) => setNewTask((prev) => ({ ...prev, notes: e.target.value }))}
-                    placeholder="Additional task details..."
+                    placeholder="Дополнительные детали задачи..."
                     className="border-2"
                   />
                 </div>
                 <Button onClick={handleCreateTask} className="w-full shadow-sm">
-                  Create Task
+                  Создать задачу
                 </Button>
               </div>
             </DialogContent>
@@ -242,28 +274,36 @@ export function TasksPage() {
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search tasks..."
+                placeholder="Поиск задач..."
                 className="pl-10 border-2"
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full sm:w-48 border-2">
                 <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder="Фильтр по статусу" />
               </SelectTrigger>
               <SelectContent className="border-2 border-border bg-popover">
-                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="all">Все статусы</SelectItem>
                 {statusFilters.map((status) => (
                   <SelectItem key={status} value={status}>
-                    {status.replace('_', ' ')}
+                    {statusLabels[status]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" className="border-2">
-              <ArrowUpDown className="h-4 w-4 mr-2" />
-              Sort
-            </Button>
+            <Select value={sortOrder} onValueChange={setSortOrder}>
+              <SelectTrigger className="w-full sm:w-56 border-2">
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Сортировка" />
+              </SelectTrigger>
+              <SelectContent className="border-2 border-border bg-popover">
+                <SelectItem value="updated_desc">Обновление: новые</SelectItem>
+                <SelectItem value="updated_asc">Обновление: старые</SelectItem>
+                <SelectItem value="created_desc">Создание: новые</SelectItem>
+                <SelectItem value="created_asc">Создание: старые</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -281,7 +321,7 @@ export function TasksPage() {
                     </div>
                     <h3 className="font-medium truncate">{task.title}</h3>
                     <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                      <span>Updated {new Date(task.updatedAt).toLocaleDateString()}</span>
+                      <span>Обновлено {new Date(task.updatedAt).toLocaleDateString()}</span>
                     </div>
                   </div>
 
@@ -314,7 +354,7 @@ export function TasksPage() {
                             }}
                           >
                             <Play className="h-4 w-4 mr-2" />
-                            Run OpenCode
+                            Запустить OpenCode
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={(e) => {
@@ -323,7 +363,7 @@ export function TasksPage() {
                             }}
                           >
                             <RefreshCw className="h-4 w-4 mr-2" />
-                            Resync
+                            Пересинхронизировать
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -338,13 +378,13 @@ export function TasksPage() {
 
       {isLoading && (
         <div className="text-center py-12 border-2 border-dashed border-border">
-          <p className="text-muted-foreground">Loading tasks...</p>
+          <p className="text-muted-foreground">Загрузка задач...</p>
         </div>
       )}
 
       {!isLoading && filteredTasks.length === 0 && (
         <div className="text-center py-12 border-2 border-dashed border-border">
-          <p className="text-muted-foreground">No tasks match your filters</p>
+          <p className="text-muted-foreground">Нет задач по выбранным фильтрам</p>
         </div>
       )}
     </div>

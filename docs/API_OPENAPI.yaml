@@ -1,0 +1,382 @@
+openapi: 3.0.3
+info:
+  title: AutoFlow API
+  version: 1.0.0
+  description: |
+    Backend API for the AutoFlow Flow Editor. This is a starting point for frontend integration.
+    Replace host URLs with your deployment. The spec provides core resources: flows, nodes, edges, and runs.
+servers:
+  - url: https://api.autoflow.example/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Local development server
+paths:
+  /flows:
+    get:
+      summary: List flows
+      operationId: listFlows
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Flow'
+    post:
+      summary: Create a new flow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlowCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Flow'
+        '400':
+          description: Bad Request
+  /flows/{flowId}:
+    parameters:
+      - name: flowId
+        in: path
+        required: true
+        description: Flow identifier
+        schema:
+          type: string
+    get:
+      summary: Get a flow
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Flow'
+        '404':
+          description: Not Found
+    put:
+      summary: Replace a flow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlowUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Flow'
+        '404':
+          description: Not Found
+    patch:
+      summary: Update a flow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlowUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Flow'
+        '404':
+          description: Not Found
+    delete:
+      summary: Delete a flow
+      responses:
+        '204':
+          description: Deleted
+  /flows/{flowId}/nodes:
+    get:
+      summary: List nodes in a flow
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Node'
+    post:
+      summary: Add a node to a flow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+        '400':
+          description: Bad Request
+  /flows/{flowId}/edges:
+    get:
+      summary: List edges in a flow
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Edge'
+    post:
+      summary: Add an edge to a flow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EdgeCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Edge'
+        '400':
+          description: Bad Request
+  /flows/{flowId}/run:
+    post:
+      summary: Run a flow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunCreate'
+      responses:
+        '201':
+          description: Run started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          description: Bad Request
+  /runs/{runId}:
+    get:
+      summary: Get run status and result
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: Not Found
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Flow:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "flow_123abc"
+        name:
+          type: string
+          example: "Order Processing"
+        description:
+          type: string
+          example: "Flow to orchestrate order processing steps"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [draft, active, paused, completed]
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+        lastRun:
+          type: string
+          format: date-time
+          nullable: true
+    FlowCreate:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        config:
+          type: object
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeCreate'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/EdgeCreate'
+    FlowUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        config:
+          type: object
+    Node:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [Trigger, Action, Condition, End]
+        data:
+          type: object
+        position:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+        ports:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+    NodeCreate:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+        data:
+          type: object
+        position:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+    Edge:
+      type: object
+      properties:
+        id:
+          type: string
+        from:
+          type: object
+          properties:
+            nodeId:
+              type: string
+            port:
+              type: string
+        to:
+          type: object
+          properties:
+            nodeId:
+              type: string
+            port:
+              type: string
+        label:
+          type: string
+    EdgeCreate:
+      type: object
+      required:
+        - from
+        - to
+      properties:
+        from:
+          type: object
+          properties:
+            nodeId:
+              type: string
+            port:
+              type: string
+        to:
+          type: object
+          properties:
+            nodeId:
+              type: string
+            port:
+              type: string
+    Run:
+      type: object
+      properties:
+        id:
+          type: string
+        flowId:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [queued, running, success, failed, cancelled]
+        logs:
+          type: string
+          nullable: true
+        result:
+          type: object
+          nullable: true
+    RunCreate:
+      type: object
+      required:
+        - flowId
+      properties:
+        flowId:
+          type: string
+        variables:
+          type: object
+          additionalProperties: true
+        options:
+          type: object
+          additionalProperties: true

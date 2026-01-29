@@ -36,14 +36,14 @@ export function InvitePage() {
         body: { username, password },
       });
       toast({
-        title: 'Account created',
-        description: 'Welcome to Auto-Flow.',
+        title: 'Аккаунт создан',
+        description: 'Добро пожаловать в Auto-Flow.',
       });
       navigate('/projects');
     } catch (error: any) {
       toast({
-        title: 'Invite failed',
-        description: error?.message || 'Please check your details and try again.',
+        title: 'Ошибка приглашения',
+        description: error?.message || 'Проверьте данные и попробуйте снова.',
         variant: 'destructive',
       });
     } finally {
@@ -58,18 +58,18 @@ export function InvitePage() {
           <div className="h-12 w-12 bg-primary mx-auto mb-4 flex items-center justify-center">
             <span className="text-primary-foreground font-mono font-bold text-lg">AF</span>
           </div>
-          <CardTitle className="text-2xl">Accept Invite</CardTitle>
-          <CardDescription>Create your account to continue</CardDescription>
+          <CardTitle className="text-2xl">Принять приглашение</CardTitle>
+          <CardDescription>Создайте аккаунт, чтобы продолжить</CardDescription>
         </CardHeader>
         <CardContent>
           {isValid === false ? (
             <div className="text-center text-sm text-muted-foreground">
-              This invite link is invalid or expired.
+              Эта ссылка недействительна или срок ее действия истек.
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username">Имя пользователя</Label>
                 <Input
                   id="username"
                   value={username}
@@ -81,7 +81,7 @@ export function InvitePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">Пароль</Label>
                 <Input
                   id="password"
                   type="password"
@@ -94,7 +94,7 @@ export function InvitePage() {
                 />
               </div>
               <Button type="submit" className="w-full shadow-sm" disabled={isLoading || isValid === null}>
-                {isLoading ? 'Creating...' : 'Create Account'}
+                {isLoading ? 'Создание...' : 'Создать аккаунт'}
               </Button>
             </form>
           )}

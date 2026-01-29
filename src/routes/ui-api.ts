@@ -51,10 +51,12 @@ import {
   normalizeMaxFilesChanged,
   normalizeOpenCodeCommand,
   normalizeOpenCodeMode,
+  normalizeLogMode,
   normalizeTimeoutMinutes,
   normalizeWriteMode,
 } from '../services/opencode-runner';
 import { disconnectOpenCodeIntegration, startOpenCodeOauth } from '../services/opencode-oauth';
+import { buildTokenRemote, ensureRepoCache } from '../services/opencode-workspace';
 
 type AuthedReq = Request & { auth?: { userId: string; username: string } };
 
@@ -169,6 +171,28 @@ function mapEventRow(row: any): any {
     source: row.source ?? null,
     taskTitle: row.task_title ?? null,
   };
+}
+
+async function adoptLegacyTasksIfSoloProject(projectId: string): Promise<number> {
+  const projects = await listProjects();
+  if (projects.length !== 1) return 0;
+
+  const legacyCountRes = await pool.query<{ count: string }>('select count(*) from tasks where project_id is null');
+  const legacyCount = Number(legacyCountRes.rows[0]?.count ?? 0);
+  if (!legacyCount) return 0;
+
+  await pool.query('update tasks set project_id = $1 where project_id is null', [projectId]);
+  await pool.query(
+    `
+      update task_events
+      set project_id = $1
+      where project_id is null
+        and task_id in (select id from tasks where project_id = $1)
+    `,
+    [projectId],
+  );
+
+  return legacyCount;
 }
 
 export function uiApiRouter(): Router {
@@ -424,6 +448,7 @@ export function uiApiRouter(): Router {
     const access = await getProjectAccess(req, res, slug);
     if (!access) return;
 
+    await adoptLegacyTasksIfSoloProject(access.project.id);
     const tasks = await listTasksByProject(access.project.id);
     const activeStatuses = new Set(['RECEIVED', 'TASKSPEC_CREATED', 'NEEDS_REPO', 'ISSUE_CREATED', 'PR_CREATED', 'WAITING_CI', 'BLOCKED']);
     const activeTasks = tasks.filter((t) => activeStatuses.has(t.status)).length;
@@ -475,6 +500,7 @@ export function uiApiRouter(): Router {
     const access = await getProjectAccess(req, res, slug);
     if (!access) return;
 
+    await adoptLegacyTasksIfSoloProject(access.project.id);
     const status = String(req.query.status ?? '').trim();
     const tasks = await listTasksByProject(access.project.id, status ? (status as TaskStatus) : undefined);
     res.status(200).json({ tasks: tasks.map(mapTaskRow) });
@@ -574,6 +600,7 @@ export function uiApiRouter(): Router {
     if (!access) return;
 
     const taskId = String(req.params.id);
+    await adoptLegacyTasksIfSoloProject(access.project.id);
     const task = await getTaskById(taskId);
     if (!task || task.project_id !== access.project.id) {
       jsonError(res, 404, 'Task not found');
@@ -1133,6 +1160,68 @@ export function uiApiRouter(): Router {
     res.status(200).json({ ok: true });
   });
 
+  r.post('/projects/:slug/integrations/opencode/prepare-repo', async (req: AuthedReq, res: Response) => {
+    const slug = String(req.params.slug);
+    const access = await getProjectAccess(req, res, slug, { admin: true });
+    if (!access) return;
+
+    const cfg = await getOpenCodeProjectConfig(access.project.id);
+    if (cfg.mode !== 'server-runner') {
+      jsonError(res, 400, 'OpenCode mode is not server-runner');
+      return;
+    }
+    if (!cfg.workspaceRoot) {
+      jsonError(res, 400, 'Missing OPENCODE_WORKSPACE_ROOT');
+      return;
+    }
+
+    const ghToken = await getProjectSecretPlain(access.project.id, 'GITHUB_TOKEN');
+    if (!ghToken) {
+      jsonError(res, 400, 'Missing GITHUB_TOKEN');
+      return;
+    }
+
+    const repos = await listProjectGithubRepos(access.project.id);
+    if (!repos.length) {
+      jsonError(res, 400, 'No repositories configured');
+      return;
+    }
+
+    const repoRaw = String((req.body as any)?.repo ?? '').trim();
+    const repoChoice = repoRaw ? parseOwnerRepo(repoRaw) : null;
+    const targets = repoChoice
+      ? repos.filter((r) => r.owner === repoChoice.owner && r.repo === repoChoice.repo)
+      : repos;
+
+    if (repoChoice && !targets.length) {
+      jsonError(res, 400, 'Repository not configured');
+      return;
+    }
+
+    const results: Array<{ owner: string; repo: string; status: string; message?: string; defaultBranch?: string }> = [];
+    for (const target of targets) {
+      try {
+        const gh = new GithubClient(ghToken, target.owner, target.repo);
+        const info = await gh.getRepository();
+        const defaultBranch = info.default_branch || 'main';
+        const tokenUrl = buildTokenRemote(target.owner, target.repo, ghToken);
+        const cache = await ensureRepoCache({
+          workspaceRoot: cfg.workspaceRoot,
+          owner: target.owner,
+          repo: target.repo,
+          defaultBranch,
+          tokenUrl,
+          scrub: ghToken,
+        });
+        results.push({ owner: target.owner, repo: target.repo, status: cache.status, defaultBranch });
+      } catch (err: any) {
+        results.push({ owner: target.owner, repo: target.repo, status: 'failed', message: String(err?.message ?? err) });
+      }
+    }
+
+    res.status(200).json({ ok: true, results });
+  });
+
   r.get('/projects/:slug/runs', async (req: AuthedReq, res: Response) => {
     const slug = String(req.params.slug);
     const access = await getProjectAccess(req, res, slug);
@@ -1211,7 +1300,7 @@ export function uiApiRouter(): Router {
       opencodeWorkdir: Boolean(await readSecretSafe('OPENCODE_WORKDIR')),
     };
 
-    const opencode = await getOpenCodeProjectConfig(access.project.id);
+  const opencode = await getOpenCodeProjectConfig(access.project.id);
 
     res.status(200).json({
       project: { id: access.project.id, slug: access.project.slug, name: access.project.name },
@@ -1266,6 +1355,7 @@ export function uiApiRouter(): Router {
     const timeoutRaw = String((req.body as any)?.opencode_pr_timeout_min ?? '').trim();
     const modelRaw = String((req.body as any)?.opencode_model ?? '').trim();
     const workspaceRootRaw = String((req.body as any)?.opencode_workspace_root ?? '').trim();
+    const logModeRaw = String((req.body as any)?.opencode_log_mode ?? '').trim();
     const authModeRaw = String((req.body as any)?.opencode_auth_mode ?? '').trim();
     const localCliReadyRaw = String((req.body as any)?.opencode_local_cli_ready ?? '').trim();
     const policyWriteModeRaw = String((req.body as any)?.opencode_policy_write_mode ?? '').trim();
@@ -1278,6 +1368,8 @@ export function uiApiRouter(): Router {
     if (timeoutRaw) await setProjectSecret(access.project.id, 'OPENCODE_PR_TIMEOUT_MINUTES', String(normalizeTimeoutMinutes(timeoutRaw)));
     if (modelRaw) await setProjectSecret(access.project.id, 'OPENCODE_MODEL', modelRaw);
     if (workspaceRootRaw) await setProjectSecret(access.project.id, 'OPENCODE_WORKSPACE_ROOT', workspaceRootRaw);
+    const logMode = normalizeLogMode(logModeRaw);
+    if (logMode) await setProjectSecret(access.project.id, 'OPENCODE_LOG_MODE', logMode);
     const authMode = normalizeAuthMode(authModeRaw);
     if (authMode) await setProjectSecret(access.project.id, 'OPENCODE_AUTH_MODE', authMode);
     await setProjectSecret(access.project.id, 'OPENCODE_LOCAL_CLI_READY', localCliReadyRaw ? '1' : '');

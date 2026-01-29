@@ -22,14 +22,14 @@ export function LoginPage() {
     try {
       await login(username, password);
       toast({
-        title: 'Welcome back!',
-        description: 'You have been logged in successfully.',
+        title: 'С возвращением!',
+        description: 'Вы успешно вошли в систему.',
       });
       navigate('/projects');
     } catch (error) {
       toast({
-        title: 'Login failed',
-        description: 'Please check your credentials and try again.',
+        title: 'Ошибка входа',
+        description: 'Проверьте логин и пароль и попробуйте снова.',
         variant: 'destructive',
       });
     } finally {
@@ -44,13 +44,13 @@ export function LoginPage() {
           <div className="h-12 w-12 bg-primary mx-auto mb-4 flex items-center justify-center">
             <span className="text-primary-foreground font-mono font-bold text-lg">AF</span>
           </div>
-          <CardTitle className="text-2xl">Welcome to Auto-Flow</CardTitle>
-          <CardDescription>Sign in with your username</CardDescription>
+          <CardTitle className="text-2xl">Добро пожаловать в Auto-Flow</CardTitle>
+          <CardDescription>Войдите с вашим именем пользователя</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">Имя пользователя</Label>
               <Input
                 id="username"
                 value={username}
@@ -61,7 +61,7 @@ export function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Пароль</Label>
               <Input
                 id="password"
                 type="password"
@@ -73,7 +73,7 @@ export function LoginPage() {
               />
             </div>
             <Button type="submit" className="w-full shadow-sm" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? 'Вход...' : 'Войти'}
             </Button>
           </form>
         </CardContent>

@@ -49,7 +49,7 @@ export function OverviewPage() {
   if (!currentProject) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-muted-foreground">Select a project to view overview</p>
+        <p className="text-muted-foreground">Выберите проект, чтобы увидеть обзор</p>
       </div>
     );
   }
@@ -62,19 +62,19 @@ export function OverviewPage() {
   };
 
   const statCards = [
-    { label: 'Active Tasks', value: stats.activeTasks, icon: ListTodo, trend: 'Open pipeline items' },
-    { label: 'PRs Open', value: stats.prOpen, icon: GitPullRequest, trend: 'Waiting on review or CI' },
+    { label: 'Активные задачи', value: stats.activeTasks, icon: ListTodo, trend: 'Открытые элементы пайплайна' },
+    { label: 'Открытые PR', value: stats.prOpen, icon: GitPullRequest, trend: 'Ожидание ревью или CI' },
     {
-      label: 'Success Rate',
+      label: 'Успешность',
       value: stats.successRate !== null ? `${stats.successRate}%` : '—',
       icon: CheckCircle,
-      trend: 'Deployed vs failed',
+      trend: 'Задеплоено vs ошибка',
     },
     {
-      label: 'Avg. Cycle Time',
-      value: stats.avgCycleTimeDays !== null ? `${stats.avgCycleTimeDays}d` : '—',
+      label: 'Средний цикл',
+      value: stats.avgCycleTimeDays !== null ? `${stats.avgCycleTimeDays}д` : '—',
       icon: Clock,
-      trend: 'Created → deployed',
+      trend: 'Создано → задеплоено',
     },
   ];
 
@@ -85,9 +85,9 @@ export function OverviewPage() {
         method: 'POST',
         body: { days: 90 },
       });
-      toast({ title: 'Sync started', description: 'Importing tasks from Asana.' });
+      toast({ title: 'Синхронизация запущена', description: 'Импортируем задачи из Asana.' });
     } catch (err: any) {
-      toast({ title: 'Sync failed', description: err?.message || 'Could not sync tasks.', variant: 'destructive' });
+      toast({ title: 'Ошибка синхронизации', description: err?.message || 'Не удалось синхронизировать задачи.', variant: 'destructive' });
     }
   };
 
@@ -100,13 +100,13 @@ export function OverviewPage() {
         </div>
         <Button className="shadow-sm" onClick={handleSync} disabled={isLoading || !canEdit}>
           <RefreshCw className="h-4 w-4 mr-2" />
-          Sync from Asana
+          Синхронизировать из Asana
         </Button>
       </div>
 
       <Card className="border-2 border-border">
         <CardHeader>
-          <CardTitle className="text-base font-medium">Integration Status</CardTitle>
+          <CardTitle className="text-base font-medium">Статус интеграций</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-3">
@@ -118,11 +118,11 @@ export function OverviewPage() {
             <div className="mt-4 p-3 bg-chart-4/10 border-2 border-chart-4/30 flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-chart-4 shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-sm">Setup incomplete</p>
+                <p className="font-medium text-sm">Настройка не завершена</p>
                 <p className="text-sm text-muted-foreground">
-                  Connect all integrations to enable full automation.{' '}
+                  Подключите все интеграции, чтобы включить полную автоматизацию.{' '}
                   <Link to={`/p/${currentProject.slug}/settings`} className="underline hover:text-foreground">
-                    Configure settings →
+                    Открыть настройки →
                   </Link>
                 </p>
               </div>
@@ -153,10 +153,10 @@ export function OverviewPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="border-2 border-border">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base font-medium">Recent Tasks</CardTitle>
+            <CardTitle className="text-base font-medium">Последние задачи</CardTitle>
             <Link to={`/p/${currentProject.slug}/tasks`}>
               <Button variant="ghost" size="sm">
-                View All <ArrowRight className="h-4 w-4 ml-1" />
+                Все задачи <ArrowRight className="h-4 w-4 ml-1" />
               </Button>
             </Link>
           </CardHeader>
@@ -173,7 +173,7 @@ export function OverviewPage() {
                 </Link>
               ))}
               {!data?.recentTasks?.length && (
-                <div className="text-sm text-muted-foreground">No tasks yet.</div>
+                <div className="text-sm text-muted-foreground">Пока нет задач.</div>
               )}
             </div>
           </CardContent>
@@ -183,7 +183,7 @@ export function OverviewPage() {
           <CardHeader>
             <CardTitle className="text-base font-medium flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              Recent Activity
+              Последняя активность
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -203,7 +203,7 @@ export function OverviewPage() {
                 </div>
               ))}
               {!data?.recentEvents?.length && (
-                <div className="text-sm text-muted-foreground">No activity yet.</div>
+                <div className="text-sm text-muted-foreground">Пока нет активности.</div>
               )}
             </div>
           </CardContent>

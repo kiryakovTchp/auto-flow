@@ -15,10 +15,10 @@ export function DocsPage() {
       <div className="max-w-4xl mx-auto space-y-6">
         <Card className="border-2 border-border">
           <CardHeader>
-            <CardTitle>Auto-Flow Docs</CardTitle>
+            <CardTitle>Документация Auto-Flow</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="text-sm text-muted-foreground">Quick links</div>
+            <div className="text-sm text-muted-foreground">Быстрые ссылки</div>
             <div className="flex flex-wrap gap-2">
               {links.map((l) => (
                 <Button key={l.label} variant="outline" className="border-2" asChild>

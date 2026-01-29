@@ -24,14 +24,14 @@ export function InitPage() {
         body: { token, username, password },
       });
       toast({
-        title: 'Admin created',
-        description: 'You are now signed in.',
+        title: 'Администратор создан',
+        description: 'Вы вошли в систему.',
       });
       navigate('/projects');
     } catch (error: any) {
       toast({
-        title: 'Init failed',
-        description: error?.message || 'Please check your token and try again.',
+        title: 'Ошибка инициализации',
+        description: error?.message || 'Проверьте токен и попробуйте снова.',
         variant: 'destructive',
       });
     } finally {
@@ -46,25 +46,25 @@ export function InitPage() {
           <div className="h-12 w-12 bg-primary mx-auto mb-4 flex items-center justify-center">
             <span className="text-primary-foreground font-mono font-bold text-lg">AF</span>
           </div>
-          <CardTitle className="text-2xl">Initialize Admin</CardTitle>
-          <CardDescription>One-time setup for the first admin user</CardDescription>
+          <CardTitle className="text-2xl">Инициализация администратора</CardTitle>
+          <CardDescription>Одноразовая настройка первого администратора</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="token">Init Token</Label>
+              <Label htmlFor="token">Токен инициализации</Label>
               <Input
                 id="token"
                 type="password"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste INIT_ADMIN_TOKEN"
+                placeholder="Вставьте INIT_ADMIN_TOKEN"
                 className="border-2"
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">Имя пользователя</Label>
               <Input
                 id="username"
                 value={username}
@@ -75,7 +75,7 @@ export function InitPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Пароль</Label>
               <Input
                 id="password"
                 type="password"
@@ -87,7 +87,7 @@ export function InitPage() {
               />
             </div>
             <Button type="submit" className="w-full shadow-sm" disabled={isLoading}>
-              {isLoading ? 'Creating...' : 'Create Admin'}
+              {isLoading ? 'Создание...' : 'Создать администратора'}
             </Button>
           </form>
         </CardContent>

@@ -27,8 +27,8 @@ export function WebhooksPage() {
   const { toast } = useToast();
   const [data, setData] = useState<WebhooksResponse | null>(null);
   const [publicBaseUrl, setPublicBaseUrl] = useState('');
-  const [repoSyncResult, setRepoSyncResult] = useState('Not run yet');
-  const [githubValidation, setGithubValidation] = useState('Not checked yet');
+  const [repoSyncResult, setRepoSyncResult] = useState('Еще не запускалось');
+  const [githubValidation, setGithubValidation] = useState('Еще не проверялось');
   const canManage = currentProject?.role === 'admin';
 
   useEffect(() => {
@@ -43,9 +43,9 @@ export function WebhooksPage() {
         method: 'POST',
         body: { public_base_url: publicBaseUrl.trim() },
       });
-      toast({ title: 'Asana webhooks set up', description: 'Webhooks created for all configured projects.' });
+      toast({ title: 'Вебхуки Asana настроены', description: 'Вебхуки созданы для всех настроенных проектов.' });
     } catch (err: any) {
-      toast({ title: 'Setup failed', description: err?.message || 'Could not setup Asana webhooks.', variant: 'destructive' });
+      toast({ title: 'Ошибка настройки', description: err?.message || 'Не удалось настроить вебхуки Asana.', variant: 'destructive' });
     }
   };
 
@@ -78,24 +78,24 @@ export function WebhooksPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Webhooks</h1>
-        <p className="text-muted-foreground">Configure incoming webhooks for Asana and GitHub</p>
+        <h1 className="text-2xl font-bold">Вебхуки</h1>
+        <p className="text-muted-foreground">Настройка входящих вебхуков Asana и GitHub</p>
       </div>
 
       <div className="grid gap-6">
         <Card className="border-2 border-border">
           <CardHeader>
-            <CardTitle>GitHub Webhook URL</CardTitle>
+            <CardTitle>URL вебхука GitHub</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="font-mono text-sm break-all">{data?.githubUrl || '—'}</div>
-            <div className="text-xs text-muted-foreground mt-2">Configure in GitHub Settings → Webhooks</div>
+            <div className="text-xs text-muted-foreground mt-2">Настройте в GitHub Settings → Webhooks</div>
           </CardContent>
         </Card>
 
         <Card className="border-2 border-border">
           <CardHeader>
-            <CardTitle>Asana Webhook URL(s)</CardTitle>
+            <CardTitle>URL вебхука Asana</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2 font-mono text-sm">
@@ -107,11 +107,11 @@ export function WebhooksPage() {
         {canManage && (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Setup Asana Webhooks</CardTitle>
+              <CardTitle>Настроить вебхуки Asana</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="publicBaseUrl">Public Base URL</Label>
+                <Label htmlFor="publicBaseUrl">Публичный Base URL</Label>
                 <Input
                   id="publicBaseUrl"
                   value={publicBaseUrl}
@@ -119,9 +119,9 @@ export function WebhooksPage() {
                   placeholder="https://your-domain.com"
                   className="border-2"
                 />
-                <div className="text-xs text-muted-foreground">Base URL for webhook callbacks (no trailing slash)</div>
+                <div className="text-xs text-muted-foreground">Base URL для webhook callback (без завершающего слеша)</div>
               </div>
-              <Button onClick={setupAsanaWebhooks}>Setup Asana Webhooks</Button>
+              <Button onClick={setupAsanaWebhooks}>Настроить вебхуки Asana</Button>
             </CardContent>
           </Card>
         )}
@@ -129,23 +129,23 @@ export function WebhooksPage() {
         {canManage && (
           <Card className="border-2 border-border">
             <CardHeader>
-              <CardTitle>Validation</CardTitle>
+              <CardTitle>Проверка</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="border-2" onClick={syncRepos}>
-                  Sync Repos to Asana
+                  Синхронизировать репозитории в Asana
                 </Button>
                 <Button variant="outline" className="border-2" onClick={validateGithub}>
-                  Validate GitHub Webhooks
+                  Проверить GitHub вебхуки
                 </Button>
               </div>
               <div>
-                <div className="text-xs text-muted-foreground mb-2">Repo sync result</div>
+                <div className="text-xs text-muted-foreground mb-2">Результат синхронизации репозиториев</div>
                 <pre className="bg-muted p-3 border-2 border-border text-xs whitespace-pre-wrap">{repoSyncResult}</pre>
               </div>
               <div>
-                <div className="text-xs text-muted-foreground mb-2">GitHub validation</div>
+                <div className="text-xs text-muted-foreground mb-2">Проверка GitHub</div>
                 <pre className="bg-muted p-3 border-2 border-border text-xs whitespace-pre-wrap">{githubValidation}</pre>
               </div>
             </CardContent>
@@ -154,7 +154,7 @@ export function WebhooksPage() {
 
         <Card className="border-2 border-border">
           <CardHeader>
-            <CardTitle>Webhook Health</CardTitle>
+            <CardTitle>Статус вебхуков</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -166,12 +166,12 @@ export function WebhooksPage() {
                     {hook.asanaProjectGid ? ` · asana_project_gid=${hook.asanaProjectGid}` : ''}
                   </div>
                   <div className="text-xs text-muted-foreground ml-auto">
-                    last: {hook.lastDeliveryAt || '—'}
+                    последнее: {hook.lastDeliveryAt || '—'}
                   </div>
                 </div>
               ))}
               {!data?.hooks?.length && (
-                <div className="text-sm text-muted-foreground">No webhook deliveries yet.</div>
+                <div className="text-sm text-muted-foreground">Пока нет доставок вебхуков.</div>
               )}
             </div>
           </CardContent>

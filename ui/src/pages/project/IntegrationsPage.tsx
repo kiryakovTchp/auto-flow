@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, CheckCircle, XCircle, Settings, RefreshCw } from 'lucide-react';
+import { CheckCircle, XCircle, Settings, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,7 +20,7 @@ type OpenCodeResponse = {
   connectedAt: string | null;
   lastError: string | null;
   token: { expiresAt: string | null; scopes: string[]; lastRefreshAt: string | null; tokenType: string | null };
-  config: { authMode: 'oauth' | 'local-cli'; localCliReady: boolean };
+  config: { mode: string; authMode: 'oauth' | 'local-cli'; localCliReady: boolean; workspaceRoot: string | null };
   webConfig: { url: string | null; embedEnabled: boolean; enabled: boolean };
 };
 
@@ -28,6 +29,7 @@ export function IntegrationsPage() {
   const { toast } = useToast();
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [opencode, setOpencode] = useState<OpenCodeResponse | null>(null);
+  const [prepareBusy, setPrepareBusy] = useState(false);
   const canManage = currentProject?.role === 'admin';
 
   useEffect(() => {
@@ -41,6 +43,8 @@ export function IntegrationsPage() {
   const asanaConnected = Boolean(settings?.secrets.asanaPat && settings?.asanaProjects?.length);
   const githubConnected = Boolean(settings?.secrets.githubToken && settings?.repos?.length);
   const opencodeAuthMode = opencode?.config?.authMode ?? 'oauth';
+  const opencodeMode = opencode?.config?.mode ?? 'github-actions';
+  const repoCount = settings?.repos?.length ?? 0;
   const opencodeConnected =
     opencode?.status === 'connected' || (opencodeAuthMode === 'local-cli' && opencode?.config?.localCliReady);
 
@@ -53,7 +57,7 @@ export function IntegrationsPage() {
       );
       window.location.href = res.authorizeUrl;
     } catch (err: any) {
-      toast({ title: 'Connect failed', description: err?.message || 'Could not start OAuth.', variant: 'destructive' });
+      toast({ title: 'Не удалось подключить', description: err?.message || 'Не удалось запустить OAuth.', variant: 'destructive' });
     }
   };
 
@@ -61,19 +65,46 @@ export function IntegrationsPage() {
     if (!currentProject) return;
     try {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/integrations/opencode/disconnect`, { method: 'POST' });
-      toast({ title: 'Disconnected', description: 'OpenCode integration removed.' });
+      toast({ title: 'Отключено', description: 'Интеграция OpenCode отключена.' });
       const res = await apiFetch<OpenCodeResponse>(`/projects/${encodeURIComponent(currentProject.slug)}/integrations/opencode`);
       setOpencode(res);
     } catch (err: any) {
-      toast({ title: 'Disconnect failed', description: err?.message || 'Could not disconnect.', variant: 'destructive' });
+      toast({ title: 'Ошибка отключения', description: err?.message || 'Не удалось отключить интеграцию.', variant: 'destructive' });
+    }
+  };
+
+  const prepareRepoCache = async () => {
+    if (!currentProject || !canManage) return;
+    setPrepareBusy(true);
+    try {
+      const res = await apiFetch<{ results: Array<{ status: string; owner: string; repo: string; message?: string }> }>(
+        `/projects/${encodeURIComponent(currentProject.slug)}/integrations/opencode/prepare-repo`,
+        { method: 'POST' },
+      );
+      const counts = { cloned: 0, updated: 0, failed: 0 };
+      for (const item of res.results || []) {
+        if (item.status === 'cloned') counts.cloned += 1;
+        else if (item.status === 'updated') counts.updated += 1;
+        else counts.failed += 1;
+      }
+      const description = `Склонировано: ${counts.cloned}, обновлено: ${counts.updated}, ошибки: ${counts.failed}.`;
+      toast({
+        title: counts.failed ? 'Кэш репозиториев готов с ошибками' : 'Кэш репозиториев готов',
+        description,
+        variant: counts.failed ? 'destructive' : undefined,
+      });
+    } catch (err: any) {
+      toast({ title: 'Ошибка кэширования', description: err?.message || 'Не удалось подготовить кэш репозиториев.', variant: 'destructive' });
+    } finally {
+      setPrepareBusy(false);
     }
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Integrations</h1>
-        <p className="text-muted-foreground">Connect and manage external services</p>
+        <h1 className="text-2xl font-bold">Интеграции</h1>
+        <p className="text-muted-foreground">Подключайте и управляйте внешними сервисами</p>
       </div>
 
       <Tabs defaultValue="asana">
@@ -112,25 +143,25 @@ export function IntegrationsPage() {
                   <CardTitle className="flex items-center gap-2">
                     Asana
                     {asanaConnected && (
-                      <span className="text-xs bg-chart-2/20 text-chart-2 px-2 py-0.5 border border-chart-2/30">Connected</span>
+                      <span className="text-xs bg-chart-2/20 text-chart-2 px-2 py-0.5 border border-chart-2/30">Подключено</span>
                     )}
                   </CardTitle>
-                  <CardDescription>Sync tasks and status from Asana</CardDescription>
+                  <CardDescription>Синхронизация задач и статусов из Asana</CardDescription>
                 </div>
                 <Button variant="outline" className="border-2" asChild>
-                  <Link to={`/p/${currentProject.slug}/settings`}>Open Settings</Link>
+                  <Link to={`/p/${currentProject.slug}/settings`}>Открыть настройки</Link>
                 </Button>
               </div>
             </CardHeader>
             {asanaConnected ? (
               <CardContent className="space-y-3">
                 <div className="text-sm text-muted-foreground">
-                  {settings?.asanaProjects?.length || 0} Asana project(s) connected.
+                  {settings?.asanaProjects?.length || 0} проект(ов) Asana подключено.
                 </div>
                 <Button variant="outline" className="border-2" asChild>
                   <Link to={`/p/${currentProject.slug}/webhooks`}>
                     <RefreshCw className="h-4 w-4 mr-2" />
-                    Manage Webhooks
+                    Управление вебхуками
                   </Link>
                 </Button>
               </CardContent>
@@ -138,8 +169,8 @@ export function IntegrationsPage() {
               <CardContent>
                 <EmptyState
                   icon={Settings}
-                  title="Asana not configured"
-                  description="Add ASANA_PAT and project GIDs in Settings to enable sync."
+                  title="Asana не настроена"
+                  description="Добавьте ASANA_PAT и GID проектов в настройках, чтобы включить синхронизацию."
                 />
               </CardContent>
             )}
@@ -154,26 +185,26 @@ export function IntegrationsPage() {
                   <CardTitle className="flex items-center gap-2">
                     GitHub
                     {githubConnected && (
-                      <span className="text-xs bg-chart-2/20 text-chart-2 px-2 py-0.5 border border-chart-2/30">Connected</span>
+                      <span className="text-xs bg-chart-2/20 text-chart-2 px-2 py-0.5 border border-chart-2/30">Подключено</span>
                     )}
                   </CardTitle>
-                  <CardDescription>Create issues and track pull requests</CardDescription>
+                  <CardDescription>Создание issues и отслеживание pull request</CardDescription>
                 </div>
                 <Button variant="outline" className="border-2" asChild>
-                  <Link to={`/p/${currentProject.slug}/settings`}>Open Settings</Link>
+                  <Link to={`/p/${currentProject.slug}/settings`}>Открыть настройки</Link>
                 </Button>
               </div>
             </CardHeader>
             {githubConnected ? (
               <CardContent>
-                <div className="text-sm text-muted-foreground">{settings?.repos?.length || 0} repositories connected.</div>
+                <div className="text-sm text-muted-foreground">{settings?.repos?.length || 0} репозиториев подключено.</div>
               </CardContent>
             ) : (
               <CardContent>
                 <EmptyState
                   icon={Settings}
-                  title="GitHub not configured"
-                  description="Add GITHUB_TOKEN and repository list in Settings."
+                  title="GitHub не настроен"
+                  description="Добавьте GITHUB_TOKEN и список репозиториев в настройках."
                 />
               </CardContent>
             )}
@@ -188,23 +219,23 @@ export function IntegrationsPage() {
                   <CardTitle className="flex items-center gap-2">
                     OpenCode
                     {opencodeConnected && (
-                      <span className="text-xs bg-chart-2/20 text-chart-2 px-2 py-0.5 border border-chart-2/30">Connected</span>
+                      <span className="text-xs bg-chart-2/20 text-chart-2 px-2 py-0.5 border border-chart-2/30">Подключено</span>
                     )}
                   </CardTitle>
-                  <CardDescription>AI-powered code generation and automation</CardDescription>
+                  <CardDescription>AI‑генерация кода и автоматизация</CardDescription>
                 </div>
                 {canManage && (
                   opencodeConnected ? (
                     <Button variant="outline" className="border-2" onClick={disconnectOpenCode}>
-                      Disconnect
+                      Отключить
                     </Button>
                   ) : opencodeAuthMode === 'local-cli' ? (
                     <Button variant="outline" className="border-2" asChild>
-                      <Link to={`/p/${currentProject.slug}/settings`}>Open Settings</Link>
+                      <Link to={`/p/${currentProject.slug}/settings`}>Открыть настройки</Link>
                     </Button>
                   ) : (
                     <Button onClick={connectOpenCode} className="shadow-xs">
-                      Connect
+                      Подключить
                     </Button>
                   )
                 )}
@@ -213,30 +244,53 @@ export function IntegrationsPage() {
             {!opencodeConnected && opencodeAuthMode === 'local-cli' && (
               <CardContent>
                 <div className="text-sm text-muted-foreground">
-                  OAuth is disabled. Run <span className="font-mono">opencode auth login</span> on the server and enable Local CLI Ready in Settings.
+                  OAuth отключен. Запустите <span className="font-mono">opencode auth login</span> на сервере и включите Local CLI Ready в настройках.
                 </div>
               </CardContent>
             )}
             {opencodeConnected && opencodeAuthMode === 'local-cli' && (
               <CardContent>
-                <div className="text-sm text-muted-foreground">Local CLI authenticated.</div>
+                <div className="text-sm text-muted-foreground">Local CLI аутентифицирован.</div>
               </CardContent>
             )}
             {!opencodeConnected && opencodeAuthMode !== 'local-cli' && (
               <CardContent>
                 <EmptyState
                   icon={Settings}
-                  title="OpenCode not connected"
-                  description="Connect OpenCode to enable automated task execution."
-                  action={canManage ? { label: 'Connect OpenCode', onClick: connectOpenCode } : undefined}
+                  title="OpenCode не подключен"
+                  description="Подключите OpenCode, чтобы включить автоматическое выполнение задач."
+                  action={canManage ? { label: 'Подключить OpenCode', onClick: connectOpenCode } : undefined}
                 />
               </CardContent>
             )}
             {opencodeConnected && opencode?.webConfig?.enabled && opencode.webConfig.url && (
               <CardContent>
                 <Button variant="outline" className="border-2" asChild>
-                  <a href={opencode.webConfig.url} target="_blank" rel="noreferrer">Open OpenCode Web UI</a>
+                  <a href={opencode.webConfig.url} target="_blank" rel="noreferrer">Открыть OpenCode Web UI</a>
                 </Button>
+              </CardContent>
+            )}
+            {opencodeMode === 'server-runner' && (
+              <CardContent className="space-y-3">
+                <div className="text-sm text-muted-foreground">Кэш репозиториев для server-runner.</div>
+                <div className="text-xs text-muted-foreground">
+                  Корень workspace: <span className="font-mono">{opencode?.config?.workspaceRoot || 'не задано'}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    className="border-2"
+                    onClick={prepareRepoCache}
+                    disabled={!canManage || prepareBusy || !opencode?.config?.workspaceRoot || repoCount === 0}
+                  >
+                    {prepareBusy ? 'Подготовка...' : `Подготовить кэш репозиториев (${repoCount})`}
+                  </Button>
+                  {!opencode?.config?.workspaceRoot && (
+                    <Button variant="outline" className="border-2" asChild>
+                      <Link to={`/p/${currentProject.slug}/settings`}>Задать корень workspace</Link>
+                    </Button>
+                  )}
+                </div>
               </CardContent>
             )}
           </Card>

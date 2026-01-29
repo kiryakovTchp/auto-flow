@@ -6,12 +6,12 @@ import { useProject } from '@/contexts/ProjectContext';
 import { Badge } from '@/components/ui/badge';
 
 const sectionTitles: Record<string, string> = {
-  overview: 'Overview',
-  tasks: 'Tasks',
-  integrations: 'Integrations',
-  webhooks: 'Webhooks',
-  runs: 'Runs',
-  settings: 'Settings',
+  overview: 'Обзор',
+  tasks: 'Задачи',
+  integrations: 'Интеграции',
+  webhooks: 'Вебхуки',
+  runs: 'Запуски',
+  settings: 'Настройки',
 };
 
 export function Topbar() {
@@ -32,7 +32,7 @@ export function Topbar() {
         crumbs.push({ label: currentTitle, path: location.pathname });
       }
     } else if (location.pathname === '/projects') {
-      crumbs.push({ label: 'Projects', path: '/projects' });
+      crumbs.push({ label: 'Проекты', path: '/projects' });
     }
     
     return crumbs;
@@ -50,7 +50,7 @@ export function Topbar() {
         {/* Breadcrumbs */}
         <nav className="flex items-center gap-2 text-sm">
           <Link to="/" className="text-muted-foreground hover:text-foreground">
-            Home
+            Главная
           </Link>
           {breadcrumbs.map((crumb, index) => (
             <span key={crumb.path} className="flex items-center gap-2">

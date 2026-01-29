@@ -35,7 +35,7 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
-        Loading...
+        Загрузка...
       </div>
     );
   }
@@ -50,7 +50,7 @@ const HomeRedirect = () => {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
-        Loading...
+        Загрузка...
       </div>
     );
   }

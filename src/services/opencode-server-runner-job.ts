@@ -1,7 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-
 import { getLatestTaskSpec } from '../db/taskspecs';
 import { createAgentRun, insertAgentRunLog, updateAgentRun } from '../db/agent-runs';
 import { insertTaskEvent } from '../db/task-events';
@@ -19,8 +17,9 @@ import { getProjectSecretPlain } from './project-secure-config';
 import { buildProjectContextMarkdown } from './project-context';
 import { buildPrLinkedAsanaComment, getOpenCodeProjectConfig, type OpenCodePolicyConfig } from './opencode-runner';
 import { getOpenCodeAccessToken } from './opencode-oauth';
+import { buildTokenRemote, createWorktree, ensureRepoCache, removeWorktree } from './opencode-workspace';
+import { runCommand } from './run-command';
 
-const MAX_OUTPUT_CHARS = 20_000;
 const DEFAULT_COMMIT_PREFIX = 'opencode:';
 
 export async function processOpenCodeRunJob(params: { projectId: string; taskId: string }): Promise<void> {
@@ -107,30 +106,15 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
   const defaultBranch = repoInfo.default_branch || 'main';
 
   const runId = Date.now();
-  const workspaceBase = path.join(workspaceRoot, `${repoOwner}-${repoName}`);
-  const workspaceDir = path.join(workspaceBase, `issue-${issueNumber}-${runId}`);
+  const worktreeName = `issue-${issueNumber}-${runId}`;
 
   let agentRunId: string | null = null;
+  const logMode = opencodeCfg.logMode ?? 'safe';
+  let logWriter: ReturnType<typeof createAgentRunLogger> | null = null;
+  let repoDir: string | null = null;
+  let workspaceDir = '';
+  let branchName = '';
   try {
-    await fs.promises.mkdir(workspaceBase, { recursive: true });
-
-    const tokenUrl = buildTokenRemote(repoOwner, repoName, ghToken);
-    await runCommand('git', ['clone', '--depth', '1', '--branch', defaultBranch, tokenUrl, workspaceDir], {
-      cwd: workspaceBase,
-      scrub: ghToken,
-    });
-
-    const branchName = `opencode/issue-${issueNumber}-${runId}`;
-    await runCommand('git', ['checkout', '-b', branchName], { cwd: workspaceDir });
-
-    const prompt = await buildOpenCodePrompt({
-      projectId: params.projectId,
-      taskId: task.id,
-      issueNumber,
-      issueUrl: task.github_issue_url,
-      repo: `${repoOwner}/${repoName}`,
-    });
-
     const run = await createAgentRun({
       projectId: params.projectId,
       agentType: 'opencode',
@@ -145,6 +129,39 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     });
     agentRunId = run.id;
     await updateAgentRun({ runId: run.id, startedAt: new Date() });
+    logWriter = createAgentRunLogger(run.id, logMode);
+    await logWriter.system(`OpenCode run started (mode=${opencodeCfg.mode}, auth=${opencodeCfg.authMode}, log=${logMode})`);
+
+    const tokenUrl = buildTokenRemote(repoOwner, repoName, ghToken);
+    const cache = await ensureRepoCache({
+      workspaceRoot,
+      owner: repoOwner,
+      repo: repoName,
+      defaultBranch,
+      tokenUrl,
+      scrub: ghToken,
+      log: logWriter,
+    });
+    repoDir = cache.repoDir;
+
+    branchName = `opencode/issue-${issueNumber}-${runId}`;
+    workspaceDir = await createWorktree({
+      repoDir: cache.repoDir,
+      worktreesRoot: cache.worktreesRoot,
+      worktreeName,
+      branchName,
+      baseRef: `origin/${defaultBranch}`,
+      scrub: ghToken,
+      log: logWriter,
+    });
+
+    const prompt = await buildOpenCodePrompt({
+      projectId: params.projectId,
+      taskId: task.id,
+      issueNumber,
+      issueUrl: task.github_issue_url,
+      repo: `${repoOwner}/${repoName}`,
+    });
 
     const opencodeArgs = ['run'];
     if (opencodeCfg.model) {
@@ -161,24 +178,30 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       opencodeEnv.OPENAI_ACCESS_TOKEN = accessToken;
     }
 
+    await logWriter.system('OpenCode run command starting');
     const opencodeResult = await runCommand('opencode', opencodeArgs, {
       cwd: workspaceDir,
       env: opencodeEnv,
+      onStdoutLine: (line) => logWriter?.stdout(line),
+      onStderrLine: (line) => logWriter?.stderr(line),
     });
+    await logWriter.system('OpenCode run command finished');
+    void opencodeResult;
 
-    if (agentRunId) {
-      if (opencodeResult.stdout.trim()) {
-        await insertAgentRunLog({ runId: agentRunId, stream: 'stdout', message: opencodeResult.stdout });
-      }
-      if (opencodeResult.stderr.trim()) {
-        await insertAgentRunLog({ runId: agentRunId, stream: 'stderr', message: opencodeResult.stderr });
-      }
-    }
-
-    const status = await runCommand('git', ['status', '--porcelain'], { cwd: workspaceDir });
+    await logWriter.system('Inspecting git status');
+    const status = await runCommand('git', ['status', '--porcelain'], {
+      cwd: workspaceDir,
+      onStdoutLine: logWriter.stdout,
+      onStderrLine: logWriter.stderr,
+    });
     const changedFiles = parseGitStatusFiles(status.stdout);
     if (!changedFiles.length) {
-      await markTaskFailed(params.projectId, task, 'OpenCode produced no changes');
+      const message = 'OpenCode produced no changes';
+      await logWriter.system(message);
+      if (agentRunId) {
+        await updateAgentRun({ runId: agentRunId, status: 'failed', outputSummary: message, finishedAt: new Date() });
+      }
+      await markTaskFailed(params.projectId, task, message);
       return;
     }
 
@@ -192,15 +215,33 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       return;
     }
 
-    await runCommand('git', ['add', '-A'], { cwd: workspaceDir });
+    await logWriter.system(`Files changed: ${changedFiles.length}`);
+    await logWriter.system('Staging changes');
+    await runCommand('git', ['add', '-A'], {
+      cwd: workspaceDir,
+      onStdoutLine: logWriter.stdout,
+      onStderrLine: logWriter.stderr,
+    });
+    await logWriter.system('Creating commit');
     await runCommand(
       'git',
       ['-c', 'user.name=opencode-bot', '-c', 'user.email=opencode@local', 'commit', '-m', buildCommitMessage(task.title, issueNumber)],
-      { cwd: workspaceDir },
+      {
+        cwd: workspaceDir,
+        onStdoutLine: logWriter.stdout,
+        onStderrLine: logWriter.stderr,
+      },
     );
 
-    await runCommand('git', ['push', tokenUrl, branchName], { cwd: workspaceDir, scrub: ghToken });
+    await logWriter.system(`Pushing branch ${branchName}`);
+    await runCommand('git', ['push', tokenUrl, branchName], {
+      cwd: workspaceDir,
+      scrub: ghToken,
+      onStdoutLine: logWriter.stdout,
+      onStderrLine: logWriter.stderr,
+    });
 
+    await logWriter.system('Creating pull request');
     const pr = await gh.createPullRequest({
       title: task.title ? task.title : `OpenCode: Issue #${issueNumber}`,
       body: `Fixes #${issueNumber}\n\nGenerated by OpenCode server runner.`,
@@ -219,6 +260,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
         finishedAt: new Date(),
       });
     }
+    await logWriter.system(`PR created: ${pr.html_url}`);
 
     await insertTaskEvent({
       taskId: task.id,
@@ -242,6 +284,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       const comment = buildPrLinkedAsanaComment({ prUrl: pr.html_url, issueUrl: task.github_issue_url });
       try {
         await asana.addComment(task.asana_gid, comment);
+        await logWriter.system('Asana comment posted');
         await insertTaskEvent({
           taskId: task.id,
           kind: 'asana.comment_posted',
@@ -251,6 +294,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
           refJson: { prNumber: pr.number, prUrl: pr.html_url },
         });
       } catch (err: any) {
+        await logWriter.system(`Asana comment failed: ${String(err?.message ?? err)}`);
         await insertTaskEvent({
           taskId: task.id,
           kind: 'asana.comment_failed',
@@ -268,6 +312,14 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       await updateAgentRun({ runId: agentRunId, status: 'failed', outputSummary: String(err?.message ?? err), finishedAt: new Date() });
     }
     await markTaskFailed(params.projectId, task, String(err?.message ?? err));
+  } finally {
+    if (repoDir && workspaceDir && branchName) {
+      try {
+        await removeWorktree({ repoDir, worktreeDir: workspaceDir, branchName, scrub: ghToken, log: logWriter ?? undefined });
+      } catch (err) {
+        logger.warn({ err, taskId: task.id }, 'Failed to clean up OpenCode worktree');
+      }
+    }
   }
 }
 
@@ -312,58 +364,40 @@ async function buildOpenCodePrompt(params: {
   return lines.join('\n');
 }
 
-function buildTokenRemote(owner: string, repo: string, token: string): string {
-  return `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+function createAgentRunLogger(runId: string, logMode: 'safe' | 'raw') {
+  let chain = Promise.resolve();
+
+  const enqueue = (stream: 'stdout' | 'stderr' | 'system', message: string): void => {
+    const line = sanitizeLogLine(message, logMode);
+    if (!line) return;
+    chain = chain
+      .then(() => insertAgentRunLog({ runId, stream, message: line }))
+      .catch(() => undefined);
+  };
+
+  return {
+    system: async (message: string) => enqueue('system', message),
+    stdout: (line: string) => enqueue('stdout', line),
+    stderr: (line: string) => enqueue('stderr', line),
+  };
 }
 
-async function runCommand(
-  command: string,
-  args: string[],
-  opts: { cwd: string; env?: Record<string, string>; scrub?: string },
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, {
-      cwd: opts.cwd,
-      env: { ...process.env, ...(opts.env ?? {}) },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (chunk) => {
-      if (stdout.length < MAX_OUTPUT_CHARS) {
-        stdout += chunk.toString();
-        if (stdout.length > MAX_OUTPUT_CHARS) stdout = stdout.slice(0, MAX_OUTPUT_CHARS);
-      }
-    });
-
-    proc.stderr.on('data', (chunk) => {
-      if (stderr.length < MAX_OUTPUT_CHARS) {
-        stderr += chunk.toString();
-        if (stderr.length > MAX_OUTPUT_CHARS) stderr = stderr.slice(0, MAX_OUTPUT_CHARS);
-      }
-    });
-
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      const scrubbed = opts.scrub ? scrubOutput(stdout + stderr, opts.scrub) : null;
-      const displayCommand = opts.scrub ? scrubOutput(`${command} ${args.join(' ')}`, opts.scrub) : `${command} ${args.join(' ')}`;
-      if (code === 0) {
-        resolve({ stdout, stderr });
-        return;
-      }
-      const message = scrubbed
-        ? `Command failed: ${displayCommand}\n${scrubbed}`
-        : `Command failed: ${displayCommand}`;
-      reject(new Error(message));
-    });
-  });
+function sanitizeLogLine(line: string, mode: 'safe' | 'raw'): string | null {
+  const trimmed = line.replace(/\r/g, '').trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 2000) {
+    return `${trimmed.slice(0, 1997)}...`;
+  }
+  if (mode === 'safe') {
+    if (isReasoningLine(trimmed)) return null;
+  } else if (isReasoningLine(trimmed)) {
+    return '[redacted reasoning]';
+  }
+  return trimmed;
 }
 
-function scrubOutput(value: string, secret: string): string {
-  if (!secret) return value;
-  return value.split(secret).join('***');
+function isReasoningLine(line: string): boolean {
+  return /^(thought|analysis|reasoning|chain-of-thought)\b/i.test(line) || /"type"\s*:\s*"analysis"/i.test(line);
 }
 
 function buildCommitMessage(title: string | null, issueNumber: number): string {

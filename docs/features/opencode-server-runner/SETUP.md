@@ -24,6 +24,8 @@ This is the setup for "PR only": OpenCode creates a PR, humans merge.
       - Write mode: `pr_only`
       - Max files changed (optional)
       - Deny paths (optional, glob patterns)
+    - Optional: Prepare repo cache in Integrations → OpenCode to pre-clone repos.
+      Server-runner uses cached repos + git worktrees and cleans worktrees after runs.
 6) Configure per-project webhooks:
    - Asana webhook: `/webhooks/asana/:projectId`
    - GitHub webhook: `/webhooks/github/:projectId`

@@ -51,15 +51,15 @@ export function RunsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'success':
-        return <Badge className="bg-chart-2/20 text-chart-2 border-chart-2/30">Success</Badge>;
+        return <Badge className="bg-chart-2/20 text-chart-2 border-chart-2/30">Успех</Badge>;
       case 'running':
-        return <Badge className="bg-chart-1/20 text-chart-1 border-chart-1/30">Running</Badge>;
+        return <Badge className="bg-chart-1/20 text-chart-1 border-chart-1/30">В работе</Badge>;
       case 'failed':
-        return <Badge className="bg-destructive/20 text-destructive border-destructive/30">Failed</Badge>;
+        return <Badge className="bg-destructive/20 text-destructive border-destructive/30">Ошибка</Badge>;
       case 'queued':
-        return <Badge className="bg-muted text-muted-foreground border-border">Queued</Badge>;
+        return <Badge className="bg-muted text-muted-foreground border-border">В очереди</Badge>;
       default:
-        return <Badge className="bg-muted text-muted-foreground border-border">Cancelled</Badge>;
+        return <Badge className="bg-muted text-muted-foreground border-border">Отменено</Badge>;
     }
   };
 
@@ -69,7 +69,7 @@ export function RunsPage() {
       `/projects/${encodeURIComponent(currentProject.slug)}/runs/${encodeURIComponent(runId)}`,
     );
     const logs = res.logs.map((l) => `[${l.created_at}] [${l.stream}] ${l.message}`).join('\n');
-    setSelectedRun({ id: runId, logs: logs || 'No logs available.' });
+    setSelectedRun({ id: runId, logs: logs || 'Логи недоступны.' });
   };
 
   if (!currentProject) return null;
@@ -77,8 +77,8 @@ export function RunsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Runs</h1>
-        <p className="text-muted-foreground">OpenCode execution history</p>
+        <h1 className="text-2xl font-bold">Запуски</h1>
+        <p className="text-muted-foreground">История запусков OpenCode</p>
       </div>
 
       <div className="space-y-4">
@@ -91,31 +91,31 @@ export function RunsPage() {
                     {getStatusIcon(run.status)}
                     {run.taskId ? (
                       <Link to={`/p/${currentProject.slug}/tasks/${run.taskId}`} className="font-medium hover:underline">
-                        Task #{run.taskId}
+                        Задача #{run.taskId}
                       </Link>
                     ) : (
-                      <span className="font-medium">Run {run.id}</span>
+                      <span className="font-medium">Запуск {run.id}</span>
                     )}
                     {getStatusBadge(run.status)}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span>Created {new Date(run.createdAt).toLocaleString()}</span>
-                    {run.startedAt && <span>Started {new Date(run.startedAt).toLocaleString()}</span>}
+                    <span>Создано {new Date(run.createdAt).toLocaleString()}</span>
+                    {run.startedAt && <span>Начато {new Date(run.startedAt).toLocaleString()}</span>}
                   </div>
                 </div>
                 <Dialog onOpenChange={(open) => open && loadLogs(run.id)}>
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm" className="border-2">
-                      View Logs
+                      Логи
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="border-2 border-border max-w-2xl">
                     <DialogHeader>
-                      <DialogTitle>Run Logs</DialogTitle>
+                      <DialogTitle>Логи запуска</DialogTitle>
                     </DialogHeader>
                     <ScrollArea className="h-96 mt-4">
                       <pre className="bg-primary text-primary-foreground p-4 text-sm font-mono whitespace-pre-wrap">
-                        {selectedRun?.id === run.id ? selectedRun.logs : 'Loading...'}
+                        {selectedRun?.id === run.id ? selectedRun.logs : 'Загрузка...'}
                       </pre>
                     </ScrollArea>
                   </DialogContent>
@@ -126,7 +126,7 @@ export function RunsPage() {
         ))}
         {!runs.length && (
           <div className="text-center py-12 border-2 border-dashed border-border">
-            <p className="text-muted-foreground">No runs yet.</p>
+            <p className="text-muted-foreground">Пока нет запусков.</p>
           </div>
         )}
       </div>
