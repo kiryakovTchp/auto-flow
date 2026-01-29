@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getLatestTaskSpec } from '../db/taskspecs';
-import { createAgentRun, insertAgentRunLog, updateAgentRun } from '../db/agent-runs';
+import { createAgentRun, getAgentRunById, insertAgentRunLog, updateAgentRun } from '../db/agent-runs';
 import { insertTaskEvent } from '../db/task-events';
 import {
   attachPrToTaskById,
@@ -19,6 +19,7 @@ import { buildPrLinkedAsanaComment, getOpenCodeProjectConfig, type OpenCodePolic
 import { getOpenCodeAccessToken } from './opencode-oauth';
 import { buildTokenRemote, createWorktree, ensureRepoCache, removeWorktree } from './opencode-workspace';
 import { runCommand } from './run-command';
+import { registerRunProcess, unregisterRunProcess } from './opencode-runner-cancel';
 
 const DEFAULT_COMMIT_PREFIX = 'opencode:';
 
@@ -200,6 +201,9 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     const opencodeResult = await runCommand('opencode', opencodeArgs, {
       cwd: workspaceDir,
       env: opencodeEnv,
+      onSpawn: (proc) => {
+        if (agentRunId) registerRunProcess(agentRunId, proc);
+      },
       onStdoutLine: (line) => logWriter?.stdout(line),
       onStderrLine: (line) => logWriter?.stderr(line),
       idleTimeoutMs,
@@ -216,6 +220,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     });
     await logWriter.system('OpenCode run command finished');
     void opencodeResult;
+    if (agentRunId) unregisterRunProcess(agentRunId);
 
     await logWriter.system('Inspecting git status');
     const status = await runCommand('git', ['status', '--porcelain'], {
@@ -337,6 +342,11 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
   } catch (err: any) {
     logger.error({ err, taskId: task.id }, 'OpenCode server runner failed');
     if (agentRunId) {
+      const run = await getAgentRunById({ projectId: params.projectId, runId: agentRunId });
+      if (run?.status === 'cancelled') {
+        await insertAgentRunLog({ runId: agentRunId, stream: 'system', message: 'Run cancelled; skipping failure updates.' });
+        return;
+      }
       await insertAgentRunLog({ runId: agentRunId, stream: 'system', message: String(err?.message ?? err) });
       await updateAgentRun({ runId: agentRunId, status: 'failed', outputSummary: String(err?.message ?? err), finishedAt: new Date() });
     }

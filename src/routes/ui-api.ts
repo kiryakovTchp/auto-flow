@@ -8,7 +8,7 @@ import { tokenHash } from '../security/init-admin';
 import { authenticateUser, newSessionId, requireSessionJson, SESSION_COOKIE } from '../security/sessions';
 import { consumeInvite, createInvite, createSession, createUser, deleteSession, getInviteByTokenHash, getUserByUsername } from '../db/auth';
 import { createProjectApiToken, listProjectApiTokens, revokeProjectApiToken } from '../db/api-tokens';
-import { getAgentRunById, listAgentRunLogs, listAgentRunsByProject } from '../db/agent-runs';
+import { getAgentRunById, insertAgentRunLog, listAgentRunLogs, listAgentRunsByProject, updateAgentRun } from '../db/agent-runs';
 import { getAsanaFieldConfig, listAsanaStatusMap, upsertAsanaFieldConfig, upsertAsanaStatusMap, deleteAsanaStatusMap } from '../db/asana-config';
 import { createMembership, createProject, getMembership, getProjectBySlug, listProjects, listProjectsForUser } from '../db/projects';
 import { listProjectWebhooks, upsertProjectWebhook } from '../db/project-webhooks';
@@ -57,6 +57,7 @@ import {
 } from '../services/opencode-runner';
 import { disconnectOpenCodeIntegration, startOpenCodeOauth } from '../services/opencode-oauth';
 import { buildTokenRemote, ensureRepoCache } from '../services/opencode-workspace';
+import { cancelRunProcess } from '../services/opencode-runner-cancel';
 
 type AuthedReq = Request & { auth?: { userId: string; username: string } };
 
@@ -1288,6 +1289,27 @@ export function uiApiRouter(): Router {
       },
       logs,
     });
+  });
+
+  r.post('/projects/:slug/runs/:runId/cancel', async (req: AuthedReq, res: Response) => {
+    const slug = String(req.params.slug);
+    const access = await getProjectAccess(req, res, slug, { admin: true });
+    if (!access) return;
+    const runId = String(req.params.runId);
+    const run = await getAgentRunById({ projectId: access.project.id, runId });
+    if (!run) {
+      jsonError(res, 404, 'Run not found');
+      return;
+    }
+    if (run.status !== 'running' && run.status !== 'queued') {
+      jsonError(res, 400, 'Run is not cancellable');
+      return;
+    }
+
+    const cancelled = cancelRunProcess(run.id);
+    await insertAgentRunLog({ runId: run.id, stream: 'system', message: 'Run cancelled by user.' });
+    await updateAgentRun({ runId: run.id, status: 'cancelled', outputSummary: 'Cancelled by user', finishedAt: new Date() });
+    res.status(200).json({ ok: true, cancelled });
   });
 
   r.get('/projects/:slug/settings', async (req: AuthedReq, res: Response) => {

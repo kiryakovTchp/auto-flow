@@ -26,6 +26,7 @@ import { TaskDetailPage } from "@/pages/project/TaskDetailPage";
 import { IntegrationsPage } from "@/pages/project/IntegrationsPage";
 import { WebhooksPage } from "@/pages/project/WebhooksPage";
 import { RunsPage } from "@/pages/project/RunsPage";
+import { QueuePage } from "@/pages/project/QueuePage";
 import { SettingsPage } from "@/pages/project/SettingsPage";
 
 const queryClient = new QueryClient();
@@ -101,6 +102,7 @@ const App = () => (
                 <Route path="tasks/:taskId" element={<TaskDetailPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="webhooks" element={<WebhooksPage />} />
+                <Route path="queue" element={<QueuePage />} />
                 <Route path="runs" element={<RunsPage />} />
                 <Route path="settings" element={<SettingsPage />} />
               </Route>

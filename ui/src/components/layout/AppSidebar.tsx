@@ -5,6 +5,7 @@ import {
   Plug,
   Webhook,
   Play,
+  ListOrdered,
   Settings,
   FolderKanban,
   ChevronDown,
@@ -51,6 +52,7 @@ export function AppSidebar() {
         { title: 'Задачи', url: `/p/${currentProject.slug}/tasks`, icon: ListTodo },
         { title: 'Интеграции', url: `/p/${currentProject.slug}/integrations`, icon: Plug },
         { title: 'Вебхуки', url: `/p/${currentProject.slug}/webhooks`, icon: Webhook },
+        { title: 'Очередь', url: `/p/${currentProject.slug}/queue`, icon: ListOrdered },
         { title: 'Запуски', url: `/p/${currentProject.slug}/runs`, icon: Play },
         { title: 'Настройки', url: `/p/${currentProject.slug}/settings`, icon: Settings },
       ]

@@ -6,6 +6,7 @@ export type RunCommandOptions = {
   cwd: string;
   env?: Record<string, string>;
   scrub?: string;
+  onSpawn?: (proc: ReturnType<typeof spawn>) => void;
   onStdoutLine?: (line: string) => void;
   onStderrLine?: (line: string) => void;
   idleTimeoutMs?: number;
@@ -25,6 +26,8 @@ export async function runCommand(
       env: { ...process.env, ...(opts.env ?? {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+
+    opts.onSpawn?.(proc);
 
     let stdout = '';
     let stderr = '';

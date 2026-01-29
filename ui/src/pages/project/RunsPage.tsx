@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,45 +25,44 @@ type RunRow = {
   taskId?: string | null;
 };
 
-type JobRow = {
-  id: string;
-  status: string;
-  kind: string;
-  provider: string;
-  attempts: number;
-  maxAttempts: number;
-  nextRunAt: string;
-  lockedAt: string | null;
-  lockedBy: string | null;
-  lastError: string | null;
-  createdAt: string;
-};
-
 export function RunsPage() {
   const { currentProject } = useProject();
   const [runs, setRuns] = useState<RunRow[]>([]);
-  const [jobs, setJobs] = useState<JobRow[]>([]);
   const [selectedRun, setSelectedRun] = useState<{ id: string; logs: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!currentProject) return;
-    void refreshData();
+    void refreshRuns();
   }, [currentProject]);
 
-  const refreshData = async () => {
+  const refreshRuns = async () => {
     if (!currentProject) return;
-    setLoading(true);
-    try {
-      const [runsRes, jobsRes] = await Promise.all([
-        apiFetch<{ runs: RunRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/runs`),
-        apiFetch<{ jobs: JobRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/job-queue`),
-      ]);
-      setRuns(runsRes.runs);
-      setJobs(jobsRes.jobs);
-    } finally {
-      setLoading(false);
-    }
+    setRefreshing(true);
+    const runsRes = await apiFetch<{ runs: RunRow[] }>(`/projects/${encodeURIComponent(currentProject.slug)}/runs`);
+    setRuns(runsRes.runs);
+    setRefreshing(false);
+  };
+
+  const cancelRun = async (runId: string) => {
+    if (!currentProject) return;
+    await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
+    await refreshRuns();
+  };
+
+  const exportLogs = async (runId: string) => {
+    if (!currentProject) return;
+    const res = await apiFetch<{ logs: Array<{ created_at: string; stream: string; message: string }> }>(
+      `/projects/${encodeURIComponent(currentProject.slug)}/runs/${encodeURIComponent(runId)}`,
+    );
+    const content = res.logs.map((l) => `[${l.created_at}] [${l.stream}] ${l.message}`).join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `opencode-run-${runId}.log.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const getStatusIcon = (status: string) => {
@@ -113,43 +112,9 @@ export function RunsPage() {
       </div>
 
       <div className="flex justify-end">
-        <Button variant="outline" className="border-2" onClick={refreshData} disabled={loading}>
-          <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
-          Обновить
+        <Button variant="outline" className="border-2" onClick={refreshRuns} disabled={refreshing}>
+          {refreshing ? 'Обновляем…' : 'Обновить'}
         </Button>
-      </div>
-
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold">Очередь задач</h2>
-        {jobs.map((job) => (
-          <Card key={job.id} className="border-2 border-border">
-            <CardContent className="p-4">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium">{job.kind}</div>
-                  <Badge className="bg-muted text-muted-foreground border-border">{job.status}</Badge>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Provider: {job.provider} · Attempts: {job.attempts}/{job.maxAttempts}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Created: {new Date(job.createdAt).toLocaleString()} · Next: {new Date(job.nextRunAt).toLocaleString()}
-                </div>
-                {job.lockedAt && (
-                  <div className="text-xs text-muted-foreground">
-                    Locked: {new Date(job.lockedAt).toLocaleString()} · {job.lockedBy || 'unknown'}
-                  </div>
-                )}
-                {job.lastError && <div className="text-xs text-destructive">{job.lastError}</div>}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {!jobs.length && (
-          <div className="text-center py-8 border-2 border-dashed border-border">
-            <p className="text-muted-foreground">Очередь пуста.</p>
-          </div>
-        )}
       </div>
 
       <div className="space-y-4">
@@ -174,23 +139,36 @@ export function RunsPage() {
                     {run.startedAt && <span>Начато {new Date(run.startedAt).toLocaleString()}</span>}
                   </div>
                 </div>
-                <Dialog onOpenChange={(open) => open && loadLogs(run.id)}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="border-2">
-                      Логи
+                <div className="flex flex-wrap gap-2">
+                  {(run.status === 'running' || run.status === 'queued') && (
+                    <Button variant="destructive" size="sm" className="border-2" onClick={() => cancelRun(run.id)}>
+                      Отменить
                     </Button>
-                  </DialogTrigger>
-                  <DialogContent className="border-2 border-border max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Логи запуска</DialogTitle>
-                    </DialogHeader>
-                    <ScrollArea className="h-96 mt-4">
-                      <pre className="bg-primary text-primary-foreground p-4 text-sm font-mono whitespace-pre-wrap">
-                        {selectedRun?.id === run.id ? selectedRun.logs : 'Загрузка...'}
-                      </pre>
-                    </ScrollArea>
-                  </DialogContent>
-                </Dialog>
+                  )}
+                  <Dialog onOpenChange={(open) => open && loadLogs(run.id)}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="border-2">
+                        Логи
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="border-2 border-border max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center justify-between gap-4">
+                          Логи запуска
+                          <Button variant="outline" size="sm" className="border-2" onClick={() => exportLogs(run.id)}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Экспорт
+                          </Button>
+                        </DialogTitle>
+                      </DialogHeader>
+                      <ScrollArea className="h-96 mt-4">
+                        <pre className="bg-primary text-primary-foreground p-4 text-sm font-mono whitespace-pre-wrap">
+                          {selectedRun?.id === run.id ? selectedRun.logs : 'Загрузка...'}
+                        </pre>
+                      </ScrollArea>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
             </CardContent>
           </Card>
