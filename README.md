@@ -1,163 +1,151 @@
 # Auto-Flow
 
-Auto-Flow is a small orchestration service that connects **Asana** (tasks) with **GitHub** (issues/PR/CI) and helps run an automated delivery loop via **OpenCode**.
+Auto-Flow — оркестратор задач, который связывает **Asana** и **GitHub** и запускает цикл доставки через **OpenCode**. Сервис **не запускает AI и не выполняет код**: он принимает webhooks, хранит состояние, создает/обновляет GitHub Issue, отслеживает PR/CI и обновляет исходную задачу в Asana.
 
-RU: Auto-Flow — оркестратор, который связывает **Asana** и **GitHub** и помогает запускать выполнение задач через **OpenCode**.
+## Бизнес-логика и поток данных
 
-## The key idea / Ключевая идея
+Цель: превратить задачу из Asana в управляемый, измеримый и автоматизируемый pipeline доставки.
 
-The server **does not run AI** and does not execute code. It only:
+MVP‑поток:
+1) В Asana задача помечается как “auto” (кастомное поле/правило).
+2) Auto-Flow получает webhook, запрашивает детали задачи через Asana API.
+3) Формируется **TaskSpec** (Markdown) и сохраняется версионно в Postgres.
+4) Создается **GitHub Issue** с TaskSpec и командой `/opencode implement`.
+5) OpenCode (на машине разработчика или через server-runner) обрабатывает Issue и открывает PR.
+6) Auto-Flow принимает GitHub webhooks по PR и CI (`workflow_run`).
+7) Когда **PR смержен + CI зелёный**, задача переводится в `DEPLOYED`, а Asana-задача закрывается.
 
-- receives webhooks from Asana + GitHub
-- stores state in Postgres
-- creates/updates GitHub issues
-- tracks PR + GitHub Actions results
-- updates the source task in Asana
-
-OpenCode can run on a developer machine or via the server-runner. It reacts to a GitHub Issue comment like:
-
-```
-/opencode implement
-```
-
-## How it works (MVP v1)
-
-1) A task appears in Asana (or gets updated) and is marked as “auto” (via custom field / rules).
-2) Auto-Flow receives an Asana webhook and fetches full task details via Asana API.
-3) Auto-Flow generates a **TaskSpec** (Markdown) and stores a versioned copy in Postgres.
-4) Auto-Flow creates a **GitHub Issue** with TaskSpec + `/opencode implement`.
-5) OpenCode (server-runner or client-side) picks up the Issue and creates a PR.
-6) Auto-Flow receives GitHub webhooks for PR and GitHub Actions (`workflow_run`).
-7) When **PR merged + CI success** → task becomes `DEPLOYED` (and the Asana task is marked complete).
-
-Task statuses (source of truth: `src/db/tasks-v2.ts`):
-
+Источник истины — Postgres. Статусы задач определены в `src/db/tasks-v2.ts`:
 - `RECEIVED`
 - `TASKSPEC_CREATED`
+- `NEEDS_REPO`
+- `AUTO_DISABLED`
+- `CANCELLED`
+- `BLOCKED`
 - `ISSUE_CREATED`
 - `PR_CREATED`
 - `WAITING_CI`
 - `DEPLOYED`
 - `FAILED`
 
-## What’s inside
+## Роли сервиса
 
-- Express server entrypoint: `src/server.ts`
-- Postgres + SQL migrations: `src/db/migrations.ts`, `src/db/sql/*.sql`
-- Webhooks:
-  - Asana: `POST /webhooks/asana` (+ per-project `POST /webhooks/asana/:projectId`)
-  - GitHub: `POST /webhooks/github` (+ per-project `POST /webhooks/github/:projectId`)
-- UI (React SPA, source in `ui/`, built into `public/ui`):
-  - `/`, `/login`, `/init`, `/invite/:token`, `/projects`, `/p/:slug/*`
-  - legacy `/admin` (Basic Auth)
-- Public endpoints:
-  - `GET /health`
-  - `GET /metrics` (protected; see `METRICS_TOKEN`)
-  - `GET /api/v1/openapi.json` (OpenAPI 3.0)
+Auto-Flow отвечает за:
+- прием webhooks Asana/GitHub
+- хранение состояния задач/связей
+- генерацию/версионирование TaskSpec
+- создание/обновление GitHub Issues
+- трекинг PR и CI
+- обновление статуса в Asana
 
-## Quick start (local)
+OpenCode отвечает за:
+- выполнение задачи и создание PR
+- может работать локально (client) или через server-runner
 
-Prereqs:
+## Основные компоненты
 
+- Сервер (Express): `src/server.ts`
+- БД + миграции: `src/db/*`, `src/db/sql/*.sql`
+- Webhooks: `src/webhooks/*`
+- Интеграции Asana/GitHub: `src/integrations/*`
+- UI (React SPA): исходники в `ui/`, билд в `public/ui`
+- Deploy (Docker + Caddy): `deploy/`
+
+## Webhooks
+
+GitHub webhook:
+- URL: `https://<PUBLIC_BASE_URL>/webhooks/github`
+- Secret: `GITHUB_WEBHOOK_SECRET`
+- Events: `issues`, `pull_request`, `issue_comment`, `workflow_run`, `ping`
+
+Asana webhook:
+- URL: `https://<PUBLIC_BASE_URL>/webhooks/asana` (или per‑project)
+- Handshake: `X-Hook-Secret`
+- Подпись: `X-Hook-Signature` (HMAC‑SHA256 от raw body)
+
+## UI и API
+
+UI (SPA):
+- `/`, `/login`, `/init`, `/invite/:token`, `/projects`, `/p/:slug/*`
+- legacy `/admin` (Basic Auth)
+
+API:
+- `GET /api/v1/openapi.json` — OpenAPI
+- `GET /health`
+- `GET /metrics` (защищено `METRICS_TOKEN`)
+
+## Быстрый старт (локально)
+
+Требуется:
 - Node.js 20+
-- Docker (for local Postgres)
+- Docker (Postgres)
 
-Run Postgres:
-
+Запустить Postgres:
 ```
 docker compose up -d
 ```
 
-Install deps:
-
+Установить зависимости:
 ```
 npm ci
 cd ui && npm ci
 ```
 
-Build UI (outputs to `public/ui`):
-
+Собрать UI:
 ```
 cd ui && npm run build
 ```
 
-Create env file:
-
+Создать `.env`:
 ```
 cp .env.example .env
 ```
 
-Start dev server:
-
+Запуск dev сервера:
 ```
 npm run dev
 ```
 
-The server runs SQL migrations automatically on startup.
+Миграции выполняются автоматически при старте.
 
-## First-time setup (UI)
+## Первичная настройка (UI)
 
-1) Set `INIT_ADMIN_TOKEN` (in `.env` or in deploy env).
-2) Open `http://localhost:3000/init?token=<INIT_ADMIN_TOKEN>` and create the first admin.
-3) Login at `http://localhost:3000/login`.
-4) Create a project in `/projects`.
-5) In project settings (`/p/<slug>/settings`) configure:
-   - Asana secrets + custom fields
-   - GitHub token
-   - GitHub repos list (and default repo)
-   - optional mappings (status mapping, repo mapping)
-6) In `/p/<slug>/webhooks`:
-   - set up Asana webhooks
-   - validate GitHub webhooks
+1) Установить `INIT_ADMIN_TOKEN`.
+2) Открыть `/init?token=<INIT_ADMIN_TOKEN>` и создать админа.
+3) Войти через `/login`.
+4) Создать проект в `/projects`.
+5) Настроить проект в `/p/<slug>/settings`:
+   - Asana секреты и поля
+   - GitHub токен и репозитории
+   - сопоставления (status/repo), если нужны
+6) В `/p/<slug>/webhooks`:
+   - создать Asana webhooks
+   - проверить GitHub webhooks
 
-Tip: there is a built-in “Docs” page with quick links and curl snippets: `GET /docs`.
+## Конфигурация (ENV)
 
-## Webhooks configuration (high level)
+См. `src/config/env.ts` и `.env.example`. Ключевое:
+- `PUBLIC_BASE_URL`, `PORT`
+- Asana: `ASANA_PAT`, `ASANA_PROJECT_GID`, `ASANA_WEBHOOK_SECRET`
+- GitHub: `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_WEBHOOK_SECRET`
+- Admin: `ADMIN_API_TOKEN`, `INIT_ADMIN_TOKEN`
+- Ops: `METRICS_TOKEN`
 
-GitHub webhook:
+## Безопасность
 
-- Target URL: `https://<PUBLIC_BASE_URL>/webhooks/github`
-- Secret: `GITHUB_WEBHOOK_SECRET`
-- Events (recommended): `issues`, `pull_request`, `issue_comment`, `workflow_run`, `ping`
+- Секреты хранятся **в Postgres в зашифрованном виде**.
+- Мастер‑ключ: `data/master.key` (или volume `/app/data`). Потеря ключа = потеря доступа к секретам.
+- Если секреты когда‑либо попадали в git, считайте их скомпрометированными и ротируйте (см. `docs/security.md`).
 
-Asana webhook:
+## Деплой
 
-- Target URL: `https://<PUBLIC_BASE_URL>/webhooks/asana` (or per-project endpoints)
-- Handshake uses `X-Hook-Secret`.
-- Signature header: `X-Hook-Signature` (HMAC-SHA256 of raw body).
+- Docker + Caddy: `deploy/`
+- CI/CD: `docs/ci-cd.md`
+- Полный гайд: `docs/deploy.md`
 
-## API
+## Документация
 
-OpenAPI spec:
-
-- `GET /api/v1/openapi.json`
-
-The API is token-protected per project (`Authorization: Bearer <token>`). Tokens are managed in the project UI.
-
-## Deploy
-
-Production-ish Docker + Caddy setup lives in `deploy/`.
-
-- See `docs/deploy.md` and `docs/ci-cd.md`.
-
-## Security notes (read this)
-
-- Secrets are stored in Postgres **encrypted**. The encryption master key is stored at `data/master.key` (or in a Docker volume mounted at `/app/data`). If you lose it, you cannot decrypt stored secrets.
-- `docs/apikeys.md` may contain real secrets in some environments. If this ever happened for your repo, assume compromise and rotate tokens (see `docs/security.md`).
-
-## More docs
-
-- `docs/wiki/Overview.md`
-- `docs/wiki/Architecture.md`
-- `docs/wiki/Webhooks.md`
-- `docs/wiki/Database.md`
-- `docs/wiki/Runbook.md`
-- `docs/wiki/HTTP-API.md`
-- `docs/ui-inventory.md`
-
-## Development
-
-- `npm run dev` – dev server (ts-node-dev)
-- `npm run build` – TypeScript build (`dist/`)
-- `npm start` – run compiled server
-- `cd ui && npm run build` – build SPA into `public/ui`
+- `docs/main-info.md` — обзор продукта на русском
+- `docs/deploy.md` — деплой
+- `docs/ci-cd.md` — CI/CD
+- `docs/security.md` — безопасность

@@ -467,6 +467,7 @@ function buildOpenCodeConfig(params: {
 
   if (params.providerId) {
     base.enabled_providers = [params.providerId];
+    base.disabled_providers = KNOWN_PROVIDER_IDS.filter((id) => id !== params.providerId);
   }
 
   if (params.instructionsPath) {
