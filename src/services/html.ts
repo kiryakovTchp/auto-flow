@@ -295,6 +295,158 @@ export function pageShell(params: {
         if(open) open.classList.remove('open');
       });
 
+      // Easter egg: press "C" 10 times -> cat emoji rain.
+      (function(){
+        var cCount = 0;
+        var lastCAt = 0;
+        var running = false;
+        var STYLE_ID = 'cat-rain-style';
+        var ROOT_ID = 'cat-rain-root';
+
+        function isTypingTarget(t){
+          if(!t) return false;
+          var tag = (t.tagName || '').toLowerCase();
+          if(tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+          if(t.isContentEditable) return true;
+          return false;
+        }
+
+        function ensureStyle(){
+          if(document.getElementById(STYLE_ID)) return;
+          var style = document.createElement('style');
+          style.id = STYLE_ID;
+          style.textContent = '' +
+            '#' + ROOT_ID + '{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:10000;}' +
+            '#' + ROOT_ID + ' .cat-rain-emoji{position:absolute;top:-48px;left:0;will-change:transform,opacity;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.18));}' +
+            '@keyframes catRainFall{0%{transform:translate3d(var(--x,0px), -60px, 0) rotate(var(--r0,0deg));opacity:0;}10%{opacity:1;}100%{transform:translate3d(calc(var(--x,0px) + var(--drift, 0px)), calc(100vh + 80px), 0) rotate(var(--r1,360deg));opacity:0;}}';
+          document.head.appendChild(style);
+        }
+
+        function random(min, max){
+          return Math.random() * (max - min) + min;
+        }
+
+        function createRoot(){
+          var existing = document.getElementById(ROOT_ID);
+          if(existing) return existing;
+          var el = document.createElement('div');
+          el.id = ROOT_ID;
+          el.setAttribute('aria-hidden', 'true');
+          document.body.appendChild(el);
+          return el;
+        }
+
+        function spawnEmoji(root){
+          var el = document.createElement('span');
+          el.className = 'cat-rain-emoji';
+
+          // ASCII-only source via code points.
+          var pick = (Math.random() * 12) | 0;
+          el.textContent =
+            pick === 0
+              ? String.fromCodePoint(0x1f63a)
+              : pick === 1
+                ? String.fromCodePoint(0x1f638)
+                : pick === 2
+                  ? String.fromCodePoint(0x1f639)
+                  : pick === 3
+                    ? String.fromCodePoint(0x1f63b)
+                    : pick === 4
+                      ? String.fromCodePoint(0x1f63c)
+                      : pick === 5
+                        ? String.fromCodePoint(0x1f640)
+                        : pick === 6
+                          ? String.fromCodePoint(0x1f63d)
+                          : pick === 7
+                            ? String.fromCodePoint(0x1f63f)
+                            : pick === 8
+                              ? String.fromCodePoint(0x1f63e)
+                              : pick === 9
+                                ? String.fromCodePoint(0x1f431)
+                                : pick === 10
+                                  ? String.fromCodePoint(0x1f408)
+                                  : String.fromCodePoint(0x1f408, 0x200d, 0x2b1b);
+
+          var left = random(0, 100);
+          var size = random(18, 38);
+          var duration = random(1600, 3200);
+          var delay = random(0, 250);
+          var drift = random(-120, 120);
+          var r0 = random(-30, 30);
+          var r1 = r0 + random(240, 720);
+
+          el.style.left = left + 'vw';
+          el.style.fontSize = size + 'px';
+          el.style.opacity = String(random(0.85, 1));
+          el.style.setProperty('--x', '0px');
+          el.style.setProperty('--drift', drift + 'px');
+          el.style.setProperty('--r0', r0 + 'deg');
+          el.style.setProperty('--r1', r1 + 'deg');
+          el.style.animation = 'catRainFall ' + duration + 'ms linear ' + delay + 'ms 1 forwards';
+
+          el.addEventListener('animationend', function(){
+            try{ el.remove(); }catch(_e){}
+          });
+          root.appendChild(el);
+        }
+
+        function cleanup(){
+          var root = document.getElementById(ROOT_ID);
+          if(root) root.remove();
+        }
+
+        function startRain(){
+          if(running) return;
+          running = true;
+          ensureStyle();
+          var root = createRoot();
+
+          var startedAt = Date.now();
+          var rainForMs = 2600;
+          var tick = setInterval(function(){
+            if(Date.now() - startedAt > rainForMs){
+              clearInterval(tick);
+              return;
+            }
+            // Burst a few each tick for a "rain" feel.
+            var burst = 4 + ((Math.random() * 3) | 0);
+            for(var i = 0; i < burst; i++) spawnEmoji(root);
+          }, 90);
+
+          // Cleanup a bit after the last emoji should have finished.
+          setTimeout(function(){
+            clearInterval(tick);
+            cleanup();
+            running = false;
+          }, rainForMs + 3800);
+        }
+
+        function bump(){
+          if(running) return;
+          var now = Date.now();
+          if(now - lastCAt > 1200) cCount = 0;
+          lastCAt = now;
+          cCount++;
+          if(cCount >= 10){
+            cCount = 0;
+            startRain();
+          }
+        }
+
+        document.addEventListener('keydown', function(e){
+          if(!e || !e.key) return;
+          if(isTypingTarget(e.target)) return;
+          if(e.key === 'c' || e.key === 'C') bump();
+        });
+
+        // Optional: if there is a dedicated "C" button somewhere in UI.
+        document.addEventListener('click', function(e){
+          var el = e.target && e.target.closest ? e.target.closest('[data-easter-c]') : null;
+          if(!el) return;
+          bump();
+        });
+      })();
+
       document.addEventListener('click', async function(e){
         var langBtn = e.target && e.target.closest ? e.target.closest('[data-lang-next]') : null;
         if(!langBtn) return;
