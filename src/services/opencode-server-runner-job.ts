@@ -171,6 +171,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     const configOverride = parseOpenCodeConfigOverride(configJsonRaw, logWriter);
     const runtimeEnv = await prepareOpenCodeRuntime({
       workspaceDir,
+      cacheDir: path.join(cache.workspaceBase, '.opencode-cache'),
       logWriter,
       authProviderId: opencodeCfg.authProvider ?? opencodeCfg.provider,
     });
@@ -196,6 +197,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
       providerId,
     });
     await logWriter.system('OpenCode config override: using isolated runtime');
+    await ensureOpenAuthDependency(runtimeEnv.cacheDir, logWriter);
     await fs.promises.writeFile(runtimeEnv.configPath, JSON.stringify(opencodeConfig), 'utf8');
     const opencodeEnv: Record<string, string> = {
       OPENCODE_CONFIG: runtimeEnv.configPath,
@@ -501,13 +503,14 @@ function getProviderFromModel(model: string | null | undefined): string | null {
 
 async function prepareOpenCodeRuntime(params: {
   workspaceDir: string;
+  cacheDir?: string | null;
   logWriter: ReturnType<typeof createAgentRunLogger> | null;
   authProviderId: string | null;
 }): Promise<{ configDir: string; dataDir: string; cacheDir: string; configPath: string }> {
   const root = path.join(params.workspaceDir, '.opencode-runtime');
   const configDir = path.join(root, 'config');
   const dataDir = path.join(root, 'data');
-  const cacheDir = path.join(root, 'cache');
+  const cacheDir = params.cacheDir ? params.cacheDir : path.join(root, 'cache');
   await fs.promises.mkdir(configDir, { recursive: true });
   await fs.promises.mkdir(dataDir, { recursive: true });
   await fs.promises.mkdir(cacheDir, { recursive: true });
@@ -543,6 +546,28 @@ function resolveOpenCodeAuthPath(): string | null {
   const candidate = path.join(home, '.local', 'share', 'opencode', 'auth.json');
   if (fs.existsSync(candidate)) return candidate;
   return null;
+}
+
+async function ensureOpenAuthDependency(cacheDir: string, logWriter: ReturnType<typeof createAgentRunLogger> | null): Promise<void> {
+  try {
+    const modulePath = path.join(cacheDir, 'opencode', 'node_modules', '@openauthjs', 'openauth', 'package.json');
+    if (fs.existsSync(modulePath)) return;
+
+    const pkgRoot = path.join(cacheDir, 'opencode');
+    await fs.promises.mkdir(pkgRoot, { recursive: true });
+    const pkgJsonPath = path.join(pkgRoot, 'package.json');
+    if (!fs.existsSync(pkgJsonPath)) {
+      await fs.promises.writeFile(pkgJsonPath, JSON.stringify({ name: 'opencode-cache', private: true }), 'utf8');
+    }
+    await logWriter?.system('Installing @openauthjs/openauth for OpenCode cache');
+    await runCommand('npm', ['install', '@openauthjs/openauth'], {
+      cwd: pkgRoot,
+      onStdoutLine: (line) => logWriter?.stdout(line),
+      onStderrLine: (line) => logWriter?.stderr(line),
+    });
+  } catch (err: any) {
+    await logWriter?.system(`OpenCode dependency install skipped: ${String(err?.message ?? err)}`);
+  }
 }
 
 function filterAuthJson(
