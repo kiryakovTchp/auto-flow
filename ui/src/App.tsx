@@ -17,6 +17,7 @@ import { InvitePage } from "@/pages/auth/InvitePage";
 // Global Pages
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { DocsPage } from "@/pages/DocsPage";
+import { LandingPage } from "@/pages/LandingPage";
 import NotFound from "@/pages/NotFound";
 
 // Project Pages
@@ -46,18 +47,6 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   return children;
 };
 
-const HomeRedirect = () => {
-  const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
-        Загрузка...
-      </div>
-    );
-  }
-  return <Navigate to={isAuthenticated ? "/projects" : "/login"} replace />;
-};
-
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -73,7 +62,7 @@ const App = () => (
               <Route path="/invite/:token" element={<InvitePage />} />
 
               {/* Redirect root to projects/login */}
-              <Route path="/" element={<HomeRedirect />} />
+              <Route path="/" element={<LandingPage />} />
 
               {/* Global Routes */}
               <Route
