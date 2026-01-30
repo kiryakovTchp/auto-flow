@@ -172,6 +172,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     const runtimeEnv = await prepareOpenCodeRuntime({
       workspaceDir,
       logWriter,
+      authProviderId: opencodeCfg.authProvider ?? opencodeCfg.provider,
     });
 
     const prompt = await buildOpenCodePrompt({
@@ -188,7 +189,7 @@ export async function processOpenCodeRunJob(params: { projectId: string; taskId:
     }
     opencodeArgs.push(prompt);
 
-    const providerId = getProviderFromModel(opencodeCfg.model);
+    const providerId = opencodeCfg.provider ?? getProviderFromModel(opencodeCfg.model);
     const opencodeConfig = buildOpenCodeConfig({
       instructionsPath,
       override: sanitizeOpenCodeOverride(configOverride, logWriter),
@@ -489,7 +490,7 @@ function sanitizeOpenCodeOverride(
   return sanitized;
 }
 
-function getProviderFromModel(model: string): string | null {
+function getProviderFromModel(model: string | null | undefined): string | null {
   const trimmed = String(model ?? '').trim();
   if (!trimmed) return null;
   const parts = trimmed.split('/');
@@ -500,6 +501,7 @@ function getProviderFromModel(model: string): string | null {
 async function prepareOpenCodeRuntime(params: {
   workspaceDir: string;
   logWriter: ReturnType<typeof createAgentRunLogger> | null;
+  authProviderId: string | null;
 }): Promise<{ configDir: string; dataDir: string; cacheDir: string; configPath: string }> {
   const root = path.join(params.workspaceDir, '.opencode-runtime');
   const configDir = path.join(root, 'config');
@@ -517,7 +519,9 @@ async function prepareOpenCodeRuntime(params: {
     try {
       const target = path.join(dataDir, 'opencode', 'auth.json');
       await fs.promises.mkdir(path.dirname(target), { recursive: true });
-      await fs.promises.copyFile(authSource, target);
+      const raw = await fs.promises.readFile(authSource, 'utf8');
+      const filtered = filterAuthJson(raw, params.authProviderId, params.logWriter);
+      await fs.promises.writeFile(target, filtered, 'utf8');
       await params.logWriter?.system('OpenCode auth copied to isolated runtime');
     } catch (err: any) {
       await params.logWriter?.system(`OpenCode auth copy skipped: ${String(err?.message ?? err)}`);
@@ -539,6 +543,98 @@ function resolveOpenCodeAuthPath(): string | null {
   if (fs.existsSync(candidate)) return candidate;
   return null;
 }
+
+function filterAuthJson(
+  raw: string,
+  providerId: string | null,
+  logWriter: ReturnType<typeof createAgentRunLogger> | null,
+): string {
+  if (!providerId) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    const filtered = filterAuthValue(parsed, providerId);
+    const payload = filtered ?? {};
+    const result = JSON.stringify(payload);
+    if (result !== raw) {
+      void logWriter?.system(`OpenCode auth filtered for provider: ${providerId}`);
+    }
+    return result;
+  } catch (err: any) {
+    void logWriter?.system(`OpenCode auth filter skipped: ${String(err?.message ?? err)}`);
+    return raw;
+  }
+}
+
+function filterAuthValue(value: any, providerId: string): any {
+  if (Array.isArray(value)) {
+    const filtered = value.filter((entry) => matchesProvider(entry, providerId));
+    return filtered.length ? filtered : value;
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  if (Object.prototype.hasOwnProperty.call(value, providerId)) {
+    const next: Record<string, any> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (key === providerId) next[key] = val;
+      if (!KNOWN_PROVIDER_IDS.includes(key)) next[key] = val;
+    }
+    return next;
+  }
+
+  const providerKeys = Object.keys(value).filter((key) => KNOWN_PROVIDER_IDS.includes(key));
+  if (providerKeys.length) {
+    const next: Record<string, any> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (KNOWN_PROVIDER_IDS.includes(key)) {
+        if (key === providerId) next[key] = val;
+        continue;
+      }
+      next[key] = val;
+    }
+    return next;
+  }
+
+  if (Array.isArray((value as any).providers)) {
+    return { ...value, providers: (value as any).providers.filter((entry: any) => matchesProvider(entry, providerId)) };
+  }
+  if ((value as any).providers && typeof (value as any).providers === 'object') {
+    return { ...value, providers: filterAuthValue((value as any).providers, providerId) };
+  }
+  if (Array.isArray((value as any).accounts)) {
+    return { ...value, accounts: (value as any).accounts.filter((entry: any) => matchesProvider(entry, providerId)) };
+  }
+  if (Array.isArray((value as any).auth)) {
+    return { ...value, auth: (value as any).auth.filter((entry: any) => matchesProvider(entry, providerId)) };
+  }
+
+  if (matchesProvider(value, providerId)) return value;
+  return value;
+}
+
+function matchesProvider(value: any, providerId: string): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const provider = String((value as any).provider ?? (value as any).id ?? (value as any).name ?? '').toLowerCase();
+  return provider === providerId.toLowerCase();
+}
+
+const KNOWN_PROVIDER_IDS = [
+  'openai',
+  'anthropic',
+  'openrouter',
+  'google',
+  'mistral',
+  'groq',
+  'perplexity',
+  'xai',
+  'deepseek',
+  'cohere',
+  'amazon-bedrock',
+  'azure-openai',
+  'fireworks',
+  'together',
+  'replicate',
+  'ollama',
+];
 
 function mergeOpenCodeConfig(base: Record<string, any>, override: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = { ...base };

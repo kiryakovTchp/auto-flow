@@ -1438,6 +1438,8 @@ export function uiApiRouter(): Router {
     const commandRaw = String((req.body as any)?.opencode_command ?? '').trim();
     const timeoutRaw = String((req.body as any)?.opencode_pr_timeout_min ?? '').trim();
     const modelRaw = String((req.body as any)?.opencode_model ?? '').trim();
+    const providerRaw = String((req.body as any)?.opencode_provider ?? '').trim();
+    const authProviderRaw = String((req.body as any)?.opencode_auth_provider ?? '').trim();
     const workspaceRootRaw = String((req.body as any)?.opencode_workspace_root ?? '').trim();
     const logModeRaw = String((req.body as any)?.opencode_log_mode ?? '').trim();
     const systemPromptRaw = String((req.body as any)?.opencode_system_prompt ?? '').trim();
@@ -1462,12 +1464,28 @@ export function uiApiRouter(): Router {
       await deleteProjectSecret({ projectId: access.project.id, key: 'OPENCODE_SYSTEM_PROMPT' });
     }
     if (configJsonRaw) {
+      try {
+        JSON.parse(configJsonRaw);
+      } catch (err: any) {
+        jsonError(res, 400, `Invalid OpenCode config JSON: ${String(err?.message ?? err)}`);
+        return;
+      }
       await setProjectSecret(access.project.id, 'OPENCODE_CONFIG_JSON', configJsonRaw);
     } else {
       await deleteProjectSecret({ projectId: access.project.id, key: 'OPENCODE_CONFIG_JSON' });
     }
     const authMode = normalizeAuthMode(authModeRaw);
     if (authMode) await setProjectSecret(access.project.id, 'OPENCODE_AUTH_MODE', authMode);
+    if (providerRaw) {
+      await setProjectSecret(access.project.id, 'OPENCODE_PROVIDER', providerRaw);
+    } else {
+      await deleteProjectSecret({ projectId: access.project.id, key: 'OPENCODE_PROVIDER' });
+    }
+    if (authProviderRaw) {
+      await setProjectSecret(access.project.id, 'OPENCODE_AUTH_PROVIDER', authProviderRaw);
+    } else {
+      await deleteProjectSecret({ projectId: access.project.id, key: 'OPENCODE_AUTH_PROVIDER' });
+    }
     await setProjectSecret(access.project.id, 'OPENCODE_LOCAL_CLI_READY', localCliReadyRaw ? '1' : '');
     const writeMode = normalizeWriteMode(policyWriteModeRaw);
     if (writeMode) await setProjectSecret(access.project.id, 'OPENCODE_POLICY_WRITE_MODE', writeMode);
@@ -1505,6 +1523,8 @@ export function uiApiRouter(): Router {
       'OPENCODE_LOG_MODE',
       'OPENCODE_SYSTEM_PROMPT',
       'OPENCODE_CONFIG_JSON',
+      'OPENCODE_PROVIDER',
+      'OPENCODE_AUTH_PROVIDER',
       'OPENCODE_AUTH_MODE',
       'OPENCODE_LOCAL_CLI_READY',
       'OPENCODE_POLICY_WRITE_MODE',

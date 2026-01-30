@@ -22,6 +22,8 @@ export type OpenCodeProjectConfig = {
   authMode: OpenCodeAuthMode;
   logMode: OpenCodeLogMode;
   localCliReady: boolean;
+  provider: string | null;
+  authProvider: string | null;
   command: string;
   prTimeoutMinutes: number;
   model: string;
@@ -39,6 +41,24 @@ const DEFAULT_OPENCODE_MODEL = 'openai/gpt-4o-mini';
 const DEFAULT_WRITE_MODE: OpenCodeWriteMode = 'pr_only';
 const DEFAULT_AUTH_MODE: OpenCodeAuthMode = 'oauth';
 const DEFAULT_LOG_MODE: OpenCodeLogMode = 'safe';
+const KNOWN_PROVIDERS = [
+  'openai',
+  'anthropic',
+  'openrouter',
+  'google',
+  'mistral',
+  'groq',
+  'perplexity',
+  'xai',
+  'deepseek',
+  'cohere',
+  'amazon-bedrock',
+  'azure-openai',
+  'fireworks',
+  'together',
+  'replicate',
+  'ollama',
+];
 
 export function normalizeOpenCodeMode(raw: string | null | undefined): OpenCodeMode | null {
   const v = String(raw ?? '').trim().toLowerCase();
@@ -125,6 +145,19 @@ export function normalizeTimeoutMinutes(raw: string | null | undefined): number 
   return Math.max(5, Math.min(n, 24 * 60));
 }
 
+export function normalizeProviderId(raw: string | null | undefined): string | null {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (!v) return null;
+  return KNOWN_PROVIDERS.includes(v) ? v : null;
+}
+
+export function getProviderFromModel(raw: string | null | undefined): string | null {
+  const v = String(raw ?? '').trim();
+  if (!v || !v.includes('/')) return null;
+  const [provider] = v.split('/');
+  return normalizeProviderId(provider);
+}
+
 export async function getOpenCodeProjectConfig(projectId?: string | null): Promise<OpenCodeProjectConfig> {
   const warnings: OpenCodeConfigWarning[] = [];
   const readSafe = async (key: ProjectSecretKey): Promise<string | null> => {
@@ -145,6 +178,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     workspaceRootRaw,
     systemPromptRaw,
     configJsonRaw,
+    providerRaw,
+    authProviderRaw,
     logModeRaw,
     authModeRaw,
     localCliReadyRaw,
@@ -160,6 +195,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     readSafe('OPENCODE_SYSTEM_PROMPT'),
     readSafe('OPENCODE_CONFIG_JSON'),
     readSafe('OPENCODE_LOG_MODE'),
+    readSafe('OPENCODE_PROVIDER'),
+    readSafe('OPENCODE_AUTH_PROVIDER'),
     readSafe('OPENCODE_AUTH_MODE'),
     readSafe('OPENCODE_LOCAL_CLI_READY'),
     readSafe('OPENCODE_POLICY_WRITE_MODE'),
@@ -181,6 +218,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
   const workspaceRoot = String(workspaceRootRaw ?? '').trim() || null;
   const systemPrompt = String(systemPromptRaw ?? '').trim() || null;
   const configJson = String(configJsonRaw ?? '').trim() || null;
+  const provider = normalizeProviderId(providerRaw) ?? getProviderFromModel(model);
+  const authProvider = normalizeProviderId(authProviderRaw) ?? provider;
 
   const authMode = normalizeAuthMode(authModeRaw) ?? DEFAULT_AUTH_MODE;
   const localCliReady = normalizeBoolFlag(localCliReadyRaw);
@@ -195,6 +234,8 @@ export async function getOpenCodeProjectConfig(projectId?: string | null): Promi
     authMode,
     logMode,
     localCliReady,
+    provider,
+    authProvider,
     command,
     prTimeoutMinutes,
     model,

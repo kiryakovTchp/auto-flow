@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Key,
   GitBranch,
@@ -11,6 +11,7 @@ import {
   Plus,
   Trash2,
   RefreshCw,
+  HelpCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -22,6 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 type SettingsData = {
   secrets: { asanaPat: boolean; githubToken: boolean; githubWebhookSecret: boolean; opencodeWorkdir: boolean };
@@ -31,6 +33,8 @@ type SettingsData = {
     authMode: string;
     logMode: string;
     localCliReady: boolean;
+    provider: string | null;
+    authProvider: string | null;
     command: string;
     prTimeoutMinutes: number;
     model: string;
@@ -64,6 +68,48 @@ const settingsSections = [
   { id: 'links', label: 'Контакты и ссылки', icon: LinkIcon },
 ];
 
+const PROVIDER_OPTIONS = [
+  { id: 'openai', label: 'OpenAI', enabled: true },
+  { id: 'anthropic', label: 'Anthropic', enabled: false },
+  { id: 'openrouter', label: 'OpenRouter', enabled: false },
+  { id: 'google', label: 'Google', enabled: false },
+  { id: 'mistral', label: 'Mistral', enabled: false },
+  { id: 'groq', label: 'Groq', enabled: false },
+  { id: 'perplexity', label: 'Perplexity', enabled: false },
+  { id: 'xai', label: 'xAI', enabled: false },
+  { id: 'deepseek', label: 'DeepSeek', enabled: false },
+  { id: 'cohere', label: 'Cohere', enabled: false },
+  { id: 'amazon-bedrock', label: 'Amazon Bedrock', enabled: false },
+  { id: 'azure-openai', label: 'Azure OpenAI', enabled: false },
+  { id: 'fireworks', label: 'Fireworks', enabled: false },
+  { id: 'together', label: 'Together', enabled: false },
+  { id: 'replicate', label: 'Replicate', enabled: false },
+  { id: 'ollama', label: 'Ollama', enabled: false },
+];
+
+const MODEL_OPTIONS: Record<string, Array<{ id: string; label: string }>> = {
+  openai: [
+    { id: 'openai/gpt-5.2', label: 'gpt-5.2' },
+    { id: 'openai/gpt-4.1', label: 'gpt-4.1' },
+    { id: 'openai/gpt-4.1-mini', label: 'gpt-4.1-mini' },
+    { id: 'openai/gpt-4o', label: 'gpt-4o' },
+    { id: 'openai/gpt-4o-mini', label: 'gpt-4o-mini' },
+  ],
+};
+
+function HelpTip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground">
+          <HelpCircle className="h-4 w-4" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">{text}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function SettingsPage() {
   const { currentProject } = useProject();
   const { toast } = useToast();
@@ -87,6 +133,8 @@ export function SettingsPage() {
     authMode: 'oauth',
     logMode: 'safe',
     localCliReady: false,
+    provider: 'openai',
+    authProvider: 'openai',
     command: '/opencode implement',
     prTimeoutMinutes: '60',
     model: 'openai/gpt-4o-mini',
@@ -99,6 +147,27 @@ export function SettingsPage() {
   });
 
   const canManage = currentProject?.role === 'admin';
+  const providerEnabled = useMemo(() => {
+    const current = PROVIDER_OPTIONS.find((p) => p.id === opencodeForm.provider);
+    return current?.enabled ?? false;
+  }, [opencodeForm.provider]);
+  const modelOptions = useMemo(() => {
+    const list = MODEL_OPTIONS[opencodeForm.provider] ?? [];
+    if (opencodeForm.model && !list.some((m) => m.id === opencodeForm.model)) {
+      return [...list, { id: opencodeForm.model, label: opencodeForm.model }];
+    }
+    return list;
+  }, [opencodeForm.provider, opencodeForm.model]);
+  const configJsonError = useMemo(() => {
+    const raw = opencodeForm.configJson.trim();
+    if (!raw) return null;
+    try {
+      JSON.parse(raw);
+      return null;
+    } catch (err: any) {
+      return String(err?.message ?? err);
+    }
+  }, [opencodeForm.configJson]);
 
   const refresh = async () => {
     if (!currentProject) return;
@@ -116,6 +185,8 @@ export function SettingsPage() {
       authMode: res.opencode.authMode,
       logMode: res.opencode.logMode,
       localCliReady: res.opencode.localCliReady,
+      provider: res.opencode.provider || 'openai',
+      authProvider: res.opencode.authProvider || res.opencode.provider || 'openai',
       command: res.opencode.command,
       prTimeoutMinutes: String(res.opencode.prTimeoutMinutes),
       model: res.opencode.model,
@@ -132,6 +203,11 @@ export function SettingsPage() {
     if (!currentProject) return;
     void refresh();
   }, [currentProject]);
+
+  const handleProviderChange = (value: string) => {
+    const nextModel = MODEL_OPTIONS[value]?.[0]?.id ?? opencodeForm.model;
+    setOpencodeForm((p) => ({ ...p, provider: value, authProvider: value, model: nextModel }));
+  };
 
   if (!currentProject) return null;
 
@@ -152,6 +228,10 @@ export function SettingsPage() {
 
   const submitOpencode = async () => {
     if (!canManage) return;
+    if (configJsonError) {
+      toast({ title: 'Ошибка JSON', description: configJsonError, variant: 'destructive' });
+      return;
+    }
     try {
       await apiFetch(`/projects/${encodeURIComponent(currentProject.slug)}/settings/opencode`, {
         method: 'POST',
@@ -160,6 +240,8 @@ export function SettingsPage() {
           opencode_command: opencodeForm.command,
           opencode_pr_timeout_min: opencodeForm.prTimeoutMinutes,
           opencode_model: opencodeForm.model,
+          opencode_provider: opencodeForm.provider,
+          opencode_auth_provider: opencodeForm.authProvider,
           opencode_workspace_root: opencodeForm.workspaceRoot,
           opencode_log_mode: opencodeForm.logMode,
           opencode_system_prompt: opencodeForm.systemPrompt,
@@ -468,7 +550,10 @@ export function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Режим</Label>
+                  <div className="flex items-center gap-2">
+                    <Label>Режим</Label>
+                    <HelpTip text="github-actions — реагирует на комментарий /opencode в issue. server-runner — выполняет задачу прямо на сервере." />
+                  </div>
                   <Select value={opencodeForm.mode} onValueChange={(value) => setOpencodeForm((p) => ({ ...p, mode: value }))}>
                     <SelectTrigger className="border-2">
                       <SelectValue />
@@ -481,7 +566,10 @@ export function SettingsPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Режим авторизации</Label>
+                  <div className="flex items-center gap-2">
+                    <Label>Режим авторизации</Label>
+                    <HelpTip text="local-cli — использовать токены из opencode auth. oauth — хранить OAuth токен в проекте." />
+                  </div>
                   <Select value={opencodeForm.authMode} onValueChange={(value) => setOpencodeForm((p) => ({ ...p, authMode: value }))}>
                     <SelectTrigger className="border-2">
                       <SelectValue />
@@ -489,6 +577,42 @@ export function SettingsPage() {
                     <SelectContent className="border-2 border-border bg-popover">
                       <SelectItem value="oauth">oauth</SelectItem>
                       <SelectItem value="local-cli">local-cli</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Label>Провайдер</Label>
+                    <HelpTip text="Выбор провайдера модели. Сейчас доступен только OpenAI." />
+                  </div>
+                  <Select value={opencodeForm.provider} onValueChange={handleProviderChange}>
+                    <SelectTrigger className="border-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-2 border-border bg-popover">
+                      {PROVIDER_OPTIONS.map((provider) => (
+                        <SelectItem key={provider.id} value={provider.id} disabled={!provider.enabled}>
+                          {provider.label}{provider.enabled ? '' : ' (скоро)'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Label>Провайдер авторизации</Label>
+                    <HelpTip text="Чьи токены использовать из opencode auth.json при local-cli." />
+                  </div>
+                  <Select value={opencodeForm.authProvider} onValueChange={(value) => setOpencodeForm((p) => ({ ...p, authProvider: value }))}>
+                    <SelectTrigger className="border-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-2 border-border bg-popover">
+                      {PROVIDER_OPTIONS.map((provider) => (
+                        <SelectItem key={provider.id} value={provider.id} disabled={!provider.enabled}>
+                          {provider.label}{provider.enabled ? '' : ' (скоро)'}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -535,12 +659,26 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Модель</Label>
-                  <Input
+                  <div className="flex items-center gap-2">
+                    <Label>Модель</Label>
+                    <HelpTip text="Список моделей зависит от выбранного провайдера." />
+                  </div>
+                  <Select
                     value={opencodeForm.model}
-                    onChange={(e) => setOpencodeForm((p) => ({ ...p, model: e.target.value }))}
-                    className="border-2"
-                  />
+                    onValueChange={(value) => setOpencodeForm((p) => ({ ...p, model: value }))}
+                    disabled={!providerEnabled || modelOptions.length === 0}
+                  >
+                    <SelectTrigger className="border-2">
+                      <SelectValue placeholder={providerEnabled ? 'Выберите модель' : 'Провайдер недоступен'} />
+                    </SelectTrigger>
+                    <SelectContent className="border-2 border-border bg-popover">
+                      {modelOptions.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Корень workspace</Label>
@@ -561,14 +699,21 @@ export function SettingsPage() {
                   <p className="text-xs text-muted-foreground">Добавляется в instructions OpenCode.</p>
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <Label>OpenCode config JSON (override)</Label>
+                  <div className="flex items-center gap-2">
+                    <Label>OpenCode config JSON (override)</Label>
+                    <HelpTip text="Расширенные настройки OpenCode. Валидный JSON. ruleset не поддерживается." />
+                  </div>
                   <Textarea
                     value={opencodeForm.configJson}
                     onChange={(e) => setOpencodeForm((p) => ({ ...p, configJson: e.target.value }))}
                     className="border-2 font-mono text-xs"
-                    placeholder='{"ruleset": [], "permission": {"edit": "allow"}}'
+                    placeholder='{"permission":"allow","default_agent":"build"}'
                   />
-                  <p className="text-xs text-muted-foreground">Можно переопределить ruleset/permission/tools. Пустое значение очищает.</p>
+                  {configJsonError ? (
+                    <p className="text-xs text-destructive">JSON ошибка: {configJsonError}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Можно переопределить permission/agents/tools. Пустое значение очищает.</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <Switch
